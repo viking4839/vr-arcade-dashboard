@@ -17,7 +17,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import Head from 'next/head';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   AreaChart, Area, BarChart, Bar,
@@ -1145,16 +1144,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <Head>
-        <title>VR Arcade Analytics</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
-      </Head>
 
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

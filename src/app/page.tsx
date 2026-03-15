@@ -1,280 +1,532 @@
 /**
- * VR Arcade Analytics Dashboard
- * ─────────────────────────────
- * Single-file Next.js page — all components defined inline.
- * Deploy to Vercel, set two env vars, done.
+ * VR Arcade Analytics Dashboard — Personal Control Panel
+ * ───────────────────────────────────────────────────────
+ * Features:
+ * - Sidebar navigation (Dashboard, Analytics, Activity, Resources, Settings)
+ * - User profile header
+ * - Real‑time revenue and session tracking
+ * - Daily progress toward target
+ * - Central pricing configuration (editable from Settings)
+ * - Live session feed, charts, and date picker
  *
- * Env vars required (.env.local / Vercel project settings):
- *   NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
- *   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
- *
- * npm deps needed (beyond Next.js defaults):
- *   npm install @supabase/supabase-js recharts date-fns
+ * Env vars required:
+ *   NEXT_PUBLIC_SUPABASE_URL
+ *   NEXT_PUBLIC_SUPABASE_ANON_KEY
  */
 
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import Head from 'next/head'
-import { createClient, RealtimeChannel } from '@supabase/supabase-js'
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import Head from 'next/head';
+import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
-} from 'recharts'
+} from 'recharts';
 import {
   subDays, format, startOfDay, endOfDay,
   parseISO, isValid,
-} from 'date-fns'
-
+} from 'date-fns';
+import {
+  LayoutDashboard,
+  BarChart3,
+  Activity,
+  BookOpen,
+  Settings,
+} from 'lucide-react';
 // ─────────────────────────────────────────────────────────────────────────────
-// SUPABASE CLIENT
+// Supabase Client
 // ─────────────────────────────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPES
+// Types
 // ─────────────────────────────────────────────────────────────────────────────
 interface GameLog {
-  id: number
-  computer_id: string
-  game_name: string
-  start_time: string
-  end_time: string
-  duration_minutes: number
-  revenue_ksh: number
-  status: 'FULL GAME' | 'PARTIAL' | 'ERROR'
-  date: string
-  created_at: string
+  id: number;
+  computer_id: string;
+  game_name: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  revenue_ksh: number;
+  status: 'FULL GAME' | 'PARTIAL' | 'ERROR';
+  date: string;
+  created_at: string;
 }
 
 interface MachineStatus {
-  computer_id: string
-  last_seen: string
-  status: string
+  computer_id: string;
+  last_seen: string;
+  status: string;
 }
 
 interface MachineWithOnline extends MachineStatus {
-  is_online: boolean
+  is_online: boolean;
+}
+
+interface PricingConfig {
+  id: number;
+  use_per_minute: boolean;
+  rate_per_full_game: number;
+  rate_per_minute: number;
+  daily_target_ksh: number;
+  updated_at: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const fmtKSH = (n: number) =>
-  `KSH ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  `KSH ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const statusColor = (s: string) => {
-  if (s === 'FULL GAME') return '#10b981'
-  if (s === 'PARTIAL')   return '#f59e0b'
-  return '#ef4444'
-}
+  if (s === 'FULL GAME') return '#10b981';
+  if (s === 'PARTIAL') return '#f59e0b';
+  return '#ef4444';
+};
 
 const statusBg = (s: string) => {
-  if (s === 'FULL GAME') return 'rgba(16,185,129,0.15)'
-  if (s === 'PARTIAL')   return 'rgba(245,158,11,0.15)'
-  return 'rgba(239,68,68,0.15)'
-}
-
+  if (s === 'FULL GAME') return 'rgba(16,185,129,0.15)';
+  if (s === 'PARTIAL') return 'rgba(245,158,11,0.15)';
+  return 'rgba(239,68,68,0.15)';
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HOOKS
+// Hooks
 // ─────────────────────────────────────────────────────────────────────────────
 function useGameLogs(limit = 500) {
-  const [logs, setLogs]       = useState<GameLog[]>([])
-  const [loading, setLoading] = useState(true)
+  const [logs, setLogs] = useState<GameLog[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let channel: RealtimeChannel
+    let channel: RealtimeChannel;
 
     const fetchLogs = async () => {
       const { data, error } = await supabase
         .from('game_logs')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(limit)
-      if (!error && data) setLogs(data as GameLog[])
-      setLoading(false)
-    }
+        .limit(limit);
+      if (!error && data) setLogs(data as GameLog[]);
+      setLoading(false);
+    };
 
-    fetchLogs()
+    fetchLogs();
 
     channel = supabase
       .channel('game_logs_rt')
-      .on('postgres_changes',
+      .on(
+        'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'game_logs' },
         (payload) => {
-          setLogs(prev => [payload.new as GameLog, ...prev].slice(0, limit))
-        })
-      .subscribe()
+          setLogs((prev) => [payload.new as GameLog, ...prev].slice(0, limit));
+        }
+      )
+      .subscribe();
 
-    return () => { channel?.unsubscribe() }
-  }, [limit])
+    return () => {
+      channel?.unsubscribe();
+    };
+  }, [limit]);
 
-  return { logs, loading }
+  return { logs, loading };
 }
 
 function useMachineStatus() {
-  const [machines, setMachines] = useState<MachineStatus[]>([])
+  const [machines, setMachines] = useState<MachineStatus[]>([]);
 
   const fetch = useCallback(async () => {
-    const { data } = await supabase.from('machine_status').select('*')
-    if (data) setMachines(data as MachineStatus[])
-  }, [])
+    const { data } = await supabase.from('machine_status').select('*');
+    if (data) setMachines(data as MachineStatus[]);
+  }, []);
 
   useEffect(() => {
-    fetch()
+    fetch();
     const channel = supabase
       .channel('machine_status_rt')
-      .on('postgres_changes',
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'machine_status' },
-        () => fetch())
-      .subscribe()
-    return () => { channel.unsubscribe() }
-  }, [fetch])
+        () => fetch()
+      )
+      .subscribe();
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [fetch]);
 
-  const now = Date.now()
-  return machines.map(m => ({
+  const now = Date.now();
+  return machines.map((m) => ({
     ...m,
     is_online: new Date(m.last_seen).getTime() > now - 5 * 60 * 1000,
-  })) as MachineWithOnline[]
+  })) as MachineWithOnline[];
+}
+
+function usePricingConfig() {
+  const [config, setConfig] = useState<PricingConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchConfig = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('pricing_config')
+      .select('*')
+      .eq('id', 1)
+      .single();
+    if (!error && data) setConfig(data as PricingConfig);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const updateConfig = async (updates: Partial<PricingConfig>) => {
+    if (!config) return;
+    const { error } = await supabase
+      .from('pricing_config')
+      .update(updates)
+      .eq('id', 1);
+    if (!error) {
+      setConfig({ ...config, ...updates });
+    }
+    return error;
+  };
+
+  return { config, loading, updateConfig };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SUB-COMPONENTS (all defined in this file)
+// Layout Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/* ── LOADING SCREEN ── */
+const sidebarItems = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'activity', label: 'Activity', icon: Activity },
+  { id: 'resources', label: 'Resources', icon: BookOpen },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
+
+export function Sidebar({
+  active,
+  onNavigate,
+}: {
+  active: string;
+  onNavigate: (id: string) => void;
+}) {
+  return (
+    <aside
+      style={{
+        width: 240,
+        background: 'var(--surface)',
+        borderRight: '1px solid var(--border)',
+        padding: '24px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <div style={{ padding: '0 12px 24px', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
+          VR Arcade
+        </h2>
+      </div>
+
+      {sidebarItems.map((item) => {
+        // We assign the icon component to a capitalized variable so React treats it as a component, not an HTML tag
+        const Icon = item.icon;
+
+        return (
+          <button
+            key={item.id}
+            onClick={() => onNavigate(item.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: active === item.id ? 'var(--accent)' : 'transparent',
+              color: active === item.id ? '#fff' : 'var(--muted)',
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              width: '100%',
+              textAlign: 'left',
+            }}
+          >
+            <Icon size={18} />
+            {item.label}
+          </button>
+        );
+      })}
+    </aside>
+  );
+}
+
+function Header({ now }: { now: Date }) {
+  return (
+    <header
+      style={{
+        background: 'var(--surface)',
+        borderBottom: '1px solid var(--border)',
+        padding: '12px 24px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <span style={{ fontSize: 14, color: 'var(--muted)' }}>Welcome back,</span>
+        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Arcade Owner</span>
+      </div>
+      <div style={{ fontSize: 14, color: 'var(--muted)' }}>
+        {format(now, 'EEEE, MMMM do, HH:mm:ss')}
+      </div>
+    </header>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// View Components
+// ─────────────────────────────────────────────────────────────────────────────
+
 function LoadingScreen() {
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      background: 'var(--bg)', gap: '1.5rem',
-    }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg)',
+        gap: '1.5rem',
+      }}
+    >
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        {[0, 1, 2].map(i => (
-          <div key={i} style={{
-            width: 14, height: 14, borderRadius: '50%',
-            background: 'var(--accent)',
-            animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-          }} />
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              background: 'var(--accent)',
+              animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+            }}
+          />
         ))}
       </div>
       <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-body)', fontSize: 14 }}>
         Connecting to arcade…
       </p>
     </div>
-  )
+  );
 }
 
-/* ── MACHINE STATUS CARDS ── */
+// Progress card for dashboard
+function ProgressCard({ todayRevenue, dailyTarget }: { todayRevenue: number; dailyTarget: number }) {
+  const percent = dailyTarget > 0 ? Math.min(100, (todayRevenue / dailyTarget) * 100) : 0;
+  const remaining = Math.max(0, dailyTarget - todayRevenue);
+
+  return (
+    <div style={cardStyle}>
+      <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Today's Progress</h2>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+          <span>Revenue</span>
+          <span>{fmtKSH(todayRevenue)} / {fmtKSH(dailyTarget)}</span>
+        </div>
+        <div
+          style={{
+            height: 8,
+            background: 'var(--surface2)',
+            borderRadius: 4,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${percent}%`,
+              height: '100%',
+              background: 'var(--accent)',
+              borderRadius: 4,
+              transition: 'width 0.3s ease',
+            }}
+          />
+        </div>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+        {remaining > 0 ? `${fmtKSH(remaining)} to go` : 'Target reached! 🎉'}
+      </p>
+    </div>
+  );
+}
+
+// Machine status cards (reused)
 function MachineStatusCards({ machines }: { machines: MachineWithOnline[] }) {
   if (machines.length === 0) {
     return (
       <div style={cardStyle}>
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>No machines registered yet.</p>
       </div>
-    )
+    );
   }
   return (
     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-      {machines.map(m => (
-        <div key={m.computer_id} style={{
-          ...cardStyle,
-          flex: '1 1 180px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          borderLeft: `3px solid ${m.is_online ? '#10b981' : '#ef4444'}`,
-        }}>
+      {machines.map((m) => (
+        <div
+          key={m.computer_id}
+          style={{
+            ...cardStyle,
+            flex: '1 1 180px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderLeft: `3px solid ${m.is_online ? '#10b981' : '#ef4444'}`,
+          }}
+        >
           <div>
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Machine</p>
-            <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{m.computer_id}</p>
+            <p
+              style={{
+                fontSize: 11,
+                color: 'var(--muted)',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Machine
+            </p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              {m.computer_id}
+            </p>
             <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
               Last seen {format(parseISO(m.last_seen), 'HH:mm:ss')}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <div style={{
-              width: 12, height: 12, borderRadius: '50%',
-              background: m.is_online ? '#10b981' : '#ef4444',
-              boxShadow: m.is_online ? '0 0 8px #10b981' : 'none',
-              animation: m.is_online ? 'glow 2s ease-in-out infinite' : 'none',
-            }} />
-            <span style={{ fontSize: 11, color: m.is_online ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+            <div
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                background: m.is_online ? '#10b981' : '#ef4444',
+                boxShadow: m.is_online ? '0 0 8px #10b981' : 'none',
+                animation: m.is_online ? 'glow 2s ease-in-out infinite' : 'none',
+              }}
+            />
+            <span
+              style={{
+                fontSize: 11,
+                color: m.is_online ? '#10b981' : '#ef4444',
+                fontWeight: 600,
+              }}
+            >
               {m.is_online ? 'ONLINE' : 'OFFLINE'}
             </span>
           </div>
         </div>
       ))}
     </div>
-  )
+  );
 }
 
-/* ── STATS CARDS ── */
+// Stats cards for today
 function StatsCards({ logs }: { logs: GameLog[] }) {
-  const today = todayStr()
-  const todayLogs = useMemo(() => logs.filter(l => l.date === today), [logs, today])
+  const today = todayStr();
+  const todayLogs = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
 
-  const revenue   = todayLogs.reduce((s, l) => s + l.revenue_ksh, 0)
-  const sessions  = todayLogs.length
-  const playtime  = todayLogs.reduce((s, l) => s + l.duration_minutes, 0)
-  const avg       = sessions ? (playtime / sessions).toFixed(1) : '—'
-  const fullGames = todayLogs.filter(l => l.status === 'FULL GAME').length
+  const revenue = todayLogs.reduce((s, l) => s + l.revenue_ksh, 0);
+  const sessions = todayLogs.length;
+  const playtime = todayLogs.reduce((s, l) => s + l.duration_minutes, 0);
+  const avg = sessions ? (playtime / sessions).toFixed(1) : '—';
+  const fullGames = todayLogs.filter((l) => l.status === 'FULL GAME').length;
 
   const cards = [
-    { label: "Today's Revenue",   value: fmtKSH(revenue),          accent: '#10b981' },
-    { label: 'Sessions Today',    value: String(sessions),          accent: '#3b82f6' },
-    { label: 'Full Games',        value: String(fullGames),         accent: '#8b5cf6' },
-    { label: 'Avg Duration',      value: `${avg} min`,              accent: '#f59e0b' },
-  ]
+    { label: "Today's Revenue", value: fmtKSH(revenue), accent: '#10b981' },
+    { label: 'Sessions Today', value: String(sessions), accent: '#3b82f6' },
+    { label: 'Full Games', value: String(fullGames), accent: '#8b5cf6' },
+    { label: 'Avg Duration', value: `${avg} min`, accent: '#f59e0b' },
+  ];
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-      {cards.map(c => (
+      {cards.map((c) => (
         <div key={c.label} style={{ ...cardStyle, borderTop: `3px solid ${c.accent}` }}>
-          <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>{c.label}</p>
-          <p style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>{c.value}</p>
+          <p
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
+              marginBottom: 8,
+            }}
+          >
+            {c.label}
+          </p>
+          <p style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>
+            {c.value}
+          </p>
         </div>
       ))}
     </div>
-  )
+  );
 }
 
-/* ── REVENUE AREA CHART ── */
+// Revenue chart (reused)
 function RevenueChart({ logs }: { logs: GameLog[] }) {
-  const [days, setDays] = useState<7 | 30 | 90>(7)
+  const [days, setDays] = useState<7 | 30 | 90>(7);
 
   const data = useMemo(() => {
-    const today = new Date()
+    const today = new Date();
     return Array.from({ length: days }, (_, i) => {
-      const day     = subDays(today, days - 1 - i)
-      const ds      = startOfDay(day)
-      const de      = endOfDay(day)
+      const day = subDays(today, days - 1 - i);
+      const ds = startOfDay(day);
+      const de = endOfDay(day);
       const revenue = logs
-        .filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de })
-        .reduce((s, l) => s + l.revenue_ksh, 0)
-      return { date: format(day, days === 7 ? 'EEE' : 'MMM dd'), revenue: +revenue.toFixed(2) }
-    })
-  }, [logs, days])
+        .filter((l) => {
+          const d = parseISO(l.start_time);
+          return d >= ds && d <= de;
+        })
+        .reduce((s, l) => s + l.revenue_ksh, 0);
+      return { date: format(day, days === 7 ? 'EEE' : 'MMM dd'), revenue: +revenue.toFixed(2) };
+    });
+  }, [logs, days]);
 
   return (
     <div style={cardStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={sectionTitle}>Revenue Trend</h2>
         <div style={{ display: 'flex', gap: 6 }}>
-          {([7, 30, 90] as const).map(d => (
-            <button key={d} onClick={() => setDays(d)} style={{
-              padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              fontSize: 12, fontWeight: 600,
-              background: days === d ? 'var(--accent)' : 'var(--surface2)',
-              color: days === d ? '#fff' : 'var(--muted)',
-              transition: 'all 0.15s',
-            }}>{d}d</button>
+          {([7, 30, 90] as const).map((d) => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              style={{
+                padding: '4px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                background: days === d ? 'var(--accent)' : 'var(--surface2)',
+                color: days === d ? '#fff' : 'var(--muted)',
+                transition: 'all 0.15s',
+              }}
+            >
+              {d}d
+            </button>
           ))}
         </div>
       </div>
@@ -283,42 +535,50 @@ function RevenueChart({ logs }: { logs: GameLog[] }) {
           <AreaChart data={data}>
             <defs>
               <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="var(--accent)" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}   />
+                <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }}
-             
+              contentStyle={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text)',
+              }}
+              formatter={(v: number) => [fmtKSH(v), 'Revenue']}
             />
             <Area type="monotone" dataKey="revenue" stroke="var(--accent)" strokeWidth={2} fill="url(#revGrad)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
     </div>
-  )
+  );
 }
 
-/* ── SESSION BREAKDOWN BAR CHART ── */
+// Session breakdown chart (reused)
 function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
   const data = useMemo(() => {
-    const today = new Date()
+    const today = new Date();
     return Array.from({ length: 7 }, (_, i) => {
-      const day  = subDays(today, 6 - i)
-      const ds   = startOfDay(day)
-      const de   = endOfDay(day)
-      const dl   = logs.filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de })
+      const day = subDays(today, 6 - i);
+      const ds = startOfDay(day);
+      const de = endOfDay(day);
+      const dl = logs.filter((l) => {
+        const d = parseISO(l.start_time);
+        return d >= ds && d <= de;
+      });
       return {
-        date:     format(day, 'EEE'),
-        Full:     dl.filter(l => l.status === 'FULL GAME').length,
-        Partial:  dl.filter(l => l.status === 'PARTIAL').length,
-        Error:    dl.filter(l => l.status === 'ERROR').length,
-      }
-    })
-  }, [logs])
+        date: format(day, 'EEE'),
+        Full: dl.filter((l) => l.status === 'FULL GAME').length,
+        Partial: dl.filter((l) => l.status === 'PARTIAL').length,
+        Error: dl.filter((l) => l.status === 'ERROR').length,
+      };
+    });
+  }, [logs]);
 
   return (
     <div style={cardStyle}>
@@ -329,15 +589,26 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis allowDecimals={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
-            <Bar dataKey="Full"    fill="#10b981" radius={[3,3,0,0]} />
-            <Bar dataKey="Partial" fill="#f59e0b" radius={[3,3,0,0]} />
-            <Bar dataKey="Error"   fill="#ef4444" radius={[3,3,0,0]} />
+            <Tooltip
+              contentStyle={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text)',
+              }}
+            />
+            <Bar dataKey="Full" fill="#10b981" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Partial" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Error" fill="#ef4444" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
-        {[['Full','#10b981'],['Partial','#f59e0b'],['Error','#ef4444']].map(([l,c]) => (
+        {[
+          ['Full', '#10b981'],
+          ['Partial', '#f59e0b'],
+          ['Error', '#ef4444'],
+        ].map(([l, c]) => (
           <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: c }} />
             {l}
@@ -345,25 +616,26 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
-/* ── TODAY STATUS PIE ── */
+// Today pie chart (reused)
 function TodayPieChart({ logs }: { logs: GameLog[] }) {
-  const today = todayStr()
-  const dl    = useMemo(() => logs.filter(l => l.date === today), [logs, today])
+  const today = todayStr();
+  const dl = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
 
   const data = [
-    { name: 'Full',    value: dl.filter(l => l.status === 'FULL GAME').length, color: '#10b981' },
-    { name: 'Partial', value: dl.filter(l => l.status === 'PARTIAL').length,   color: '#f59e0b' },
-    { name: 'Error',   value: dl.filter(l => l.status === 'ERROR').length,     color: '#ef4444' },
-  ].filter(d => d.value > 0)
+    { name: 'Full', value: dl.filter((l) => l.status === 'FULL GAME').length, color: '#10b981' },
+    { name: 'Partial', value: dl.filter((l) => l.status === 'PARTIAL').length, color: '#f59e0b' },
+    { name: 'Error', value: dl.filter((l) => l.status === 'ERROR').length, color: '#ef4444' },
+  ].filter((d) => d.value > 0);
 
-  if (data.length === 0) return (
-    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
-      <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p>
-    </div>
-  )
+  if (data.length === 0)
+    return (
+      <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p>
+      </div>
+    );
 
   return (
     <div style={cardStyle}>
@@ -371,84 +643,123 @@ function TodayPieChart({ logs }: { logs: GameLog[] }) {
       <div style={{ height: 180 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={75}
-              dataKey="value" paddingAngle={3}>
-              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={75}
+              dataKey="value"
+              paddingAngle={3}
+            >
+              {data.map((d, i) => (
+                <Cell key={i} fill={d.color} />
+              ))}
             </Pie>
-            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
+            <Tooltip
+              contentStyle={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                color: 'var(--text)',
+              }}
+            />
             <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
           </PieChart>
         </ResponsiveContainer>
       </div>
     </div>
-  )
+  );
 }
 
-/* ── TOP GAMES TABLE ── */
+// Top games (reused)
 function TopGames({ logs }: { logs: GameLog[] }) {
-  const today  = todayStr()
-  const dl     = useMemo(() => logs.filter(l => l.date === today), [logs, today])
+  const today = todayStr();
+  const dl = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
   const ranked = useMemo(() => {
-    const map = new Map<string, { count: number; revenue: number }>()
-    dl.forEach(l => {
-      const prev = map.get(l.game_name) ?? { count: 0, revenue: 0 }
-      map.set(l.game_name, { count: prev.count + 1, revenue: prev.revenue + l.revenue_ksh })
-    })
+    const map = new Map<string, { count: number; revenue: number }>();
+    dl.forEach((l) => {
+      const prev = map.get(l.game_name) ?? { count: 0, revenue: 0 };
+      map.set(l.game_name, { count: prev.count + 1, revenue: prev.revenue + l.revenue_ksh });
+    });
     return [...map.entries()]
       .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 5)
-  }, [dl])
+      .slice(0, 5);
+  }, [dl]);
 
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Top Games Today</h2>
-      {ranked.length === 0
-        ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions yet today</p>
-        : ranked.map(([name, stats], i) => (
-          <div key={name} style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '8px 0', borderBottom: i < ranked.length - 1 ? '1px solid var(--border)' : 'none',
-          }}>
+      {ranked.length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions yet today</p>
+      ) : (
+        ranked.map(([name, stats], i) => (
+          <div
+            key={name}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 0',
+              borderBottom: i < ranked.length - 1 ? '1px solid var(--border)' : 'none',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)', width: 16 }}>#{i+1}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)', width: 16 }}>#{i + 1}</span>
               <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{name}</span>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)' }}>
-              <span>{stats.count} session{stats.count !== 1 ? 's' : ''}</span>
+              <span>
+                {stats.count} session{stats.count !== 1 ? 's' : ''}
+              </span>
               <span style={{ color: '#10b981', fontWeight: 600 }}>{fmtKSH(stats.revenue)}</span>
             </div>
           </div>
         ))
-      }
+      )}
     </div>
-  )
+  );
 }
 
-/* ── DAILY SUMMARY (date picker) ── */
+// Daily summary (reused)
 function DailySummary({ logs }: { logs: GameLog[] }) {
-  const [date, setDate] = useState(todayStr())
-  const dl = useMemo(() => logs.filter(l => l.date === date), [logs, date])
+  const [date, setDate] = useState(todayStr());
+  const dl = useMemo(() => logs.filter((l) => l.date === date), [logs, date]);
 
-  const full     = dl.filter(l => l.status === 'FULL GAME').length
-  const partial  = dl.filter(l => l.status === 'PARTIAL').length
-  const errors   = dl.filter(l => l.status === 'ERROR').length
-  const revenue  = dl.reduce((s, l) => s + l.revenue_ksh, 0)
-  const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0)
-  const avg      = dl.length ? (playtime / dl.length).toFixed(1) : '—'
+  const full = dl.filter((l) => l.status === 'FULL GAME').length;
+  const partial = dl.filter((l) => l.status === 'PARTIAL').length;
+  const errors = dl.filter((l) => l.status === 'ERROR').length;
+  const revenue = dl.reduce((s, l) => s + l.revenue_ksh, 0);
+  const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0);
+  const avg = dl.length ? (playtime / dl.length).toFixed(1) : '—';
 
   return (
     <div style={cardStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 20,
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
         <h2 style={sectionTitle}>Daily Summary</h2>
         <input
           type="date"
           value={date}
           max={todayStr()}
-          onChange={e => setDate(e.target.value)}
+          onChange={(e) => setDate(e.target.value)}
           style={{
-            background: 'var(--surface2)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '6px 12px', color: 'var(--text)',
-            fontSize: 13, cursor: 'pointer', outline: 'none',
+            background: 'var(--surface2)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '6px 12px',
+            color: 'var(--text)',
+            fontSize: 13,
+            cursor: 'pointer',
+            outline: 'none',
           }}
         />
       </div>
@@ -458,31 +769,47 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem' }}>
           {[
-            { label: 'Sessions',    value: String(dl.length)   },
-            { label: 'Revenue',     value: fmtKSH(revenue)     },
-            { label: 'Full Games',  value: String(full)        },
-            { label: 'Partial',     value: String(partial)     },
-            { label: 'Errors',      value: String(errors)      },
-            { label: 'Total Time',  value: `${playtime.toFixed(0)} min` },
-            { label: 'Avg Session', value: `${avg} min`        },
-          ].map(c => (
-            <div key={c.label} style={{
-              background: 'var(--surface2)', borderRadius: 10,
-              padding: '12px 14px',
-            }}>
-              <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{c.label}</p>
-              <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{c.value}</p>
+            { label: 'Sessions', value: String(dl.length) },
+            { label: 'Revenue', value: fmtKSH(revenue) },
+            { label: 'Full Games', value: String(full) },
+            { label: 'Partial', value: String(partial) },
+            { label: 'Errors', value: String(errors) },
+            { label: 'Total Time', value: `${playtime.toFixed(0)} min` },
+            { label: 'Avg Session', value: `${avg} min` },
+          ].map((c) => (
+            <div
+              key={c.label}
+              style={{
+                background: 'var(--surface2)',
+                borderRadius: 10,
+                padding: '12px 14px',
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  marginBottom: 6,
+                }}
+              >
+                {c.label}
+              </p>
+              <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                {c.value}
+              </p>
             </div>
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }
 
-/* ── RECENT SESSIONS TABLE ── */
+// Recent sessions table (reused)
 function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
-  const recent = logs.slice(0, 15)
+  const recent = logs.slice(0, 15);
 
   return (
     <div style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}>
@@ -493,38 +820,69 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--surface2)' }}>
-              {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map(h => (
-                <th key={h} style={{
-                  padding: '10px 16px', textAlign: 'left', fontSize: 11,
-                  color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em',
-                  fontWeight: 600, whiteSpace: 'nowrap',
-                }}>{h}</th>
+              {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: '10px 16px',
+                    textAlign: 'left',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.07em',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {recent.map((log, i) => {
-              const t = parseISO(log.start_time)
+              const t = parseISO(log.start_time);
               return (
-                <tr key={log.id} style={{
-                  borderBottom: '1px solid var(--border)',
-                  background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
-                  transition: 'background 0.1s',
-                }}>
+                <tr
+                  key={log.id}
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                    transition: 'background 0.1s',
+                  }}
+                >
                   <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
                   <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text)' }}>{log.computer_id}</td>
-                  <td style={{ ...tdStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.game_name}</td>
+                  <td
+                    style={{
+                      ...tdStyle,
+                      maxWidth: 180,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {log.game_name}
+                  </td>
                   <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
                   <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
                   <td style={tdStyle}>
-                    <span style={{
-                      padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                      background: statusBg(log.status), color: statusColor(log.status),
-                      letterSpacing: '0.04em',
-                    }}>{log.status}</span>
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 20,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: statusBg(log.status),
+                        color: statusColor(log.status),
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {log.status}
+                    </span>
                   </td>
                 </tr>
-              )
+              );
             })}
             {recent.length === 0 && (
               <tr>
@@ -537,86 +895,253 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
         </table>
       </div>
     </div>
-  )
+  );
 }
 
-/* ── LIVE TICKER (new sessions pop in at top) ── */
-function LiveTicker({ logs }: { logs: GameLog[] }) {
-  const [latest, setLatest] = useState<GameLog | null>(null)
-  const [visible, setVisible] = useState(false)
+// Activity view (shows all recent activity in a timeline)
+function ActivityView({ logs }: { logs: GameLog[] }) {
+  return (
+    <div style={{ ...cardStyle, padding: 0 }}>
+      <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
+        <h2 style={sectionTitle}>Recent Activity</h2>
+      </div>
+      <div style={{ padding: '16px 24px', maxHeight: 500, overflowY: 'auto' }}>
+        {logs.slice(0, 50).map((log) => (
+          <div
+            key={log.id}
+            style={{
+              display: 'flex',
+              gap: 16,
+              padding: '12px 0',
+              borderBottom: '1px solid var(--border)',
+              fontSize: 13,
+            }}
+          >
+            <div style={{ minWidth: 80, color: 'var(--muted)' }}>{format(parseISO(log.start_time), 'HH:mm')}</div>
+            <div style={{ minWidth: 100, fontWeight: 600 }}>{log.computer_id}</div>
+            <div style={{ flex: 1 }}>{log.game_name}</div>
+            <div style={{ minWidth: 80, color: '#10b981' }}>{fmtKSH(log.revenue_ksh)}</div>
+            <div>
+              <span
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 12,
+                  background: statusBg(log.status),
+                  color: statusColor(log.status),
+                  fontSize: 10,
+                  fontWeight: 600,
+                }}
+              >
+                {log.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
+// Settings view
+function SettingsView({
+  config,
+  updateConfig,
+}: {
+  config: PricingConfig | null;
+  updateConfig: (updates: Partial<PricingConfig>) => Promise<any>;
+}) {
+  // Initialize with fallbacks using ?? (nullish coalescing) – never undefined/null
+  const [form, setForm] = useState({
+    use_per_minute: config?.use_per_minute ?? false,
+    rate_per_full_game: config?.rate_per_full_game ?? 200,
+    rate_per_minute: config?.rate_per_minute ?? 30,
+    daily_target_ksh: config?.daily_target_ksh ?? 2000,
+  });
+
+  // Sync when config loads (again using ?? to avoid null/undefined)
   useEffect(() => {
-    if (logs.length === 0) return
-    const newest = logs[0]
-    // only flash if it's a recent insert (within last 10 seconds)
-    const age = Date.now() - new Date(newest.created_at).getTime()
-    if (age < 10_000) {
-      setLatest(newest)
-      setVisible(true)
-      const t = setTimeout(() => setVisible(false), 5000)
-      return () => clearTimeout(t)
+    if (config) {
+      setForm({
+        use_per_minute: config.use_per_minute ?? false,
+        rate_per_full_game: config.rate_per_full_game ?? 200,
+        rate_per_minute: config.rate_per_minute ?? 30,
+        daily_target_ksh: config.daily_target_ksh ?? 2000,
+      });
     }
-  }, [logs])
+  }, [config]);
 
-  if (!visible || !latest) return null
+  // Safe number updater – prevents NaN
+  const handleNumberChange = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (raw === '') return; // ignore empty to keep current value
+    const num = parseFloat(raw);
+    if (!isNaN(num)) {
+      setForm(prev => ({ ...prev, [field]: num }));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await updateConfig(form);
+    alert('Pricing updated successfully!');
+  };
+
+  if (!config) return <div style={cardStyle}>Loading settings...</div>;
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 24, right: 24, zIndex: 999,
-      background: 'var(--surface)', border: `1px solid ${statusColor(latest.status)}`,
-      borderRadius: 12, padding: '14px 18px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-      maxWidth: 320, animation: 'slideUp 0.3s ease',
-    }}>
-      <p style={{ fontSize: 11, color: statusColor(latest.status), fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-        🎮 New Session — {latest.status}
-      </p>
-      <p style={{ fontSize: 14, color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}>{latest.game_name}</p>
-      <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-        {latest.computer_id} · {latest.duration_minutes.toFixed(1)} min · {fmtKSH(latest.revenue_ksh)}
-      </p>
+    <div style={cardStyle}>
+      <h2 style={{ ...sectionTitle, marginBottom: 24 }}>Pricing Configuration</h2>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 400 }}>
+        {/* Pricing Model Radios */}
+        <div>
+          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Pricing Model</label>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <input
+                type="radio"
+                checked={!form.use_per_minute}
+                onChange={() => setForm(prev => ({ ...prev, use_per_minute: false }))}
+              />
+              Per Full Game
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <input
+                type="radio"
+                checked={form.use_per_minute}
+                onChange={() => setForm(prev => ({ ...prev, use_per_minute: true }))}
+              />
+              Per Minute
+            </label>
+          </div>
+        </div>
+
+        {/* Dynamic Rate Field */}
+        {!form.use_per_minute ? (
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Rate per Full Game (KSH)</label>
+            <input
+              type="number"
+              value={form.rate_per_full_game}
+              onChange={handleNumberChange('rate_per_full_game')}
+              style={inputStyle}
+              step="10"
+              min="0"
+            />
+          </div>
+        ) : (
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Rate per Minute (KSH)</label>
+            <input
+              type="number"
+              value={form.rate_per_minute}
+              onChange={handleNumberChange('rate_per_minute')}
+              style={inputStyle}
+              step="1"
+              min="0"
+            />
+          </div>
+        )}
+
+        {/* Daily Target */}
+        <div>
+          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Daily Revenue Target (KSH)</label>
+          <input
+            type="number"
+            value={form.daily_target_ksh}
+            onChange={handleNumberChange('daily_target_ksh')}
+            style={inputStyle}
+            step="100"
+            min="0"
+          />
+        </div>
+
+        <button
+          type="submit"
+          style={{
+            background: 'var(--accent)',
+            color: '#fff',
+            border: 'none',
+            padding: '12px 20px',
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            marginTop: 12,
+          }}
+        >
+          Save Changes
+        </button>
+      </form>
     </div>
-  )
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  background: 'var(--surface2)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  padding: '10px 12px',
+  color: 'var(--text)',
+  fontSize: 13,
+  width: '100%',
+  outline: 'none',
+};
+
+// Resources view (placeholder)
+function ResourcesView() {
+  return (
+    <div style={cardStyle}>
+      <h2 style={sectionTitle}>Resources</h2>
+      <p style={{ color: 'var(--muted)', marginTop: 16 }}>Manuals, guides, and support links will appear here.</p>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHARED STYLES
+// Shared Styles
 // ─────────────────────────────────────────────────────────────────────────────
 const cardStyle: React.CSSProperties = {
-  background:   'var(--surface)',
-  border:       '1px solid var(--border)',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
   borderRadius: 14,
-  padding:      '20px 24px',
-}
+  padding: '20px 24px',
+};
 
 const sectionTitle: React.CSSProperties = {
-  fontSize:     16,
-  fontWeight:   700,
-  color:        'var(--text)',
-  fontFamily:   'var(--font-display)',
-  margin:       0,
-}
+  fontSize: 16,
+  fontWeight: 700,
+  color: 'var(--text)',
+  fontFamily: 'var(--font-display)',
+  margin: 0,
+};
 
 const tdStyle: React.CSSProperties = {
-  padding:    '12px 16px',
-  color:      'var(--muted)',
+  padding: '12px 16px',
+  color: 'var(--muted)',
   whiteSpace: 'nowrap',
-}
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAIN PAGE
+// Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { logs, loading } = useGameLogs(500)
-  const machines          = useMachineStatus()
-  const [now, setNow]     = useState(new Date())
+  const { logs, loading } = useGameLogs(500);
+  const machines = useMachineStatus();
+  const { config, loading: configLoading, updateConfig } = usePricingConfig();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [now, setNow] = useState(new Date());
 
-  // tick clock
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  if (loading) return <LoadingScreen />
+  if (loading || configLoading) return <LoadingScreen />;
+
+  const todayRevenue = useMemo(() => {
+    const today = todayStr();
+    return logs.filter((l) => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
+  }, [logs]);
 
   return (
     <>
@@ -625,7 +1150,10 @@ export default function Dashboard() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
       </Head>
 
       <style>{`
@@ -677,55 +1205,38 @@ export default function Dashboard() {
         tr:hover td { background: rgba(255,255,255,0.02) !important; }
       `}</style>
 
-      {/* Live toast */}
-      <LiveTicker logs={logs} />
-
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '28px 20px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-              VR Arcade <span style={{ color: 'var(--accent)' }}>Analytics</span>
-            </h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Live KSH tracking · Real-time data</p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 22, fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text)', letterSpacing: '0.02em' }}>
-              {format(now, 'HH:mm:ss')}
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)' }}>{format(now, 'EEEE, dd MMM yyyy')}</p>
-          </div>
+      <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <Sidebar active={activeTab} onNavigate={setActiveTab} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <Header now={now} />
+          <main style={{ padding: '24px', overflowY: 'auto' }}>
+            {activeTab === 'dashboard' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <MachineStatusCards machines={machines} />
+                <ProgressCard todayRevenue={todayRevenue} dailyTarget={config?.daily_target_ksh || 2000} />
+                <StatsCards logs={logs} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
+                  <TodayPieChart logs={logs} />
+                  <TopGames logs={logs} />
+                </div>
+                <RecentSessionsTable logs={logs} />
+              </div>
+            )}
+            {activeTab === 'analytics' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <RevenueChart logs={logs} />
+                <SessionBreakdownChart logs={logs} />
+                <DailySummary logs={logs} />
+              </div>
+            )}
+            {activeTab === 'activity' && <ActivityView logs={logs} />}
+            {activeTab === 'resources' && <ResourcesView />}
+            {activeTab === 'settings' && (
+              <SettingsView config={config} updateConfig={updateConfig} />
+            )}
+          </main>
         </div>
-
-        {/* ── MACHINE STATUS ── */}
-        <MachineStatusCards machines={machines} />
-
-        {/* ── TODAY'S KPIs ── */}
-        <StatsCards logs={logs} />
-
-        {/* ── CHARTS ROW ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
-          <RevenueChart logs={logs} />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
-          <SessionBreakdownChart logs={logs} />
-          <TodayPieChart logs={logs} />
-          <TopGames logs={logs} />
-        </div>
-
-        {/* ── DAILY SUMMARY ── */}
-        <DailySummary logs={logs} />
-
-        {/* ── LIVE SESSIONS TABLE ── */}
-        <RecentSessionsTable logs={logs} />
-
-        {/* ── FOOTER ── */}
-        <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted)', paddingBottom: 8 }}>
-          FPS Arena · Powered by Supabase Realtime
-        </p>
       </div>
     </>
-  )
+  );
 }

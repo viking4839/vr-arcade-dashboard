@@ -548,7 +548,7 @@ function RevenueChart({ logs }: { logs: GameLog[] }) {
                 borderRadius: 8,
                 color: 'var(--text)',
               }}
-              formatter={(v: number) => [fmtKSH(v), 'Revenue']}
+              formatter={(v: any) => [fmtKSH(v as number), 'Revenue']}
             />
             <Area type="monotone" dataKey="revenue" stroke="var(--accent)" strokeWidth={2} fill="url(#revGrad)" dot={false} />
           </AreaChart>

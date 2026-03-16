@@ -96,7 +96,7 @@ function useGameLogs(limit = 1000) {
       .subscribe();
     return () => { channel?.unsubscribe(); };
   }, [limit]);
-  return { logs, loading };
+  return { logs, setLogs, loading };
 }
 
 function useMachineStatus() {
@@ -358,8 +358,8 @@ function MachineStatusCards({ machines, onDelete, onClearAll }: {
       {confirm && (
         <ConfirmModal
           message={confirm.type === 'all'
-            ? 'This will delete ALL machine records from Supabase. This cannot be undone.'
-            : `Remove machine "${confirm.id}" from the database? It will re-appear automatically the next time it sends a heartbeat.`}
+            ? 'This will permanently delete ALL machines, their full game history, and all revenue records from the database. The live feed and all analytics will be cleared. This cannot be undone.'
+            : `This will permanently delete "${confirm.id}" and ALL its game logs and revenue history. The live feed will be cleared of this machine's sessions. This cannot be undone.`}
           onConfirm={() => { confirm.type === 'all' ? onClearAll() : onDelete(confirm.id!); setConfirm(null); }}
           onCancel={() => setConfirm(null)}
         />
@@ -655,14 +655,65 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Recent Sessions Table
+// Machine color palette — consistent across all views
+// ─────────────────────────────────────────────────────────────────────────────
+const MACHINE_COLORS = [
+  { bg: 'rgba(99,102,241,0.15)', border: '#6366f1', text: '#818cf8' },   // indigo
+  { bg: 'rgba(16,185,129,0.15)', border: '#10b981', text: '#34d399' },   // green
+  { bg: 'rgba(245,158,11,0.15)', border: '#f59e0b', text: '#fbbf24' },   // amber
+  { bg: 'rgba(239,68,68,0.15)',  border: '#ef4444', text: '#f87171' },   // red
+  { bg: 'rgba(59,130,246,0.15)', border: '#3b82f6', text: '#60a5fa' },   // blue
+];
+
+function getMachineColor(machineId: string, allMachineIds: string[]) {
+  const idx = allMachineIds.indexOf(machineId);
+  return MACHINE_COLORS[idx >= 0 ? idx % MACHINE_COLORS.length : 0];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recent Sessions Table — with machine filter tabs + colored badges
 // ─────────────────────────────────────────────────────────────────────────────
 function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
-  const recent = logs.slice(0, 15);
+  const [machineFilter, setMachineFilter] = useState<string>('all');
+
+  const allMachineIds = useMemo(() =>
+    [...new Set(logs.map(l => l.computer_id))].sort(),
+  [logs]);
+
+  const displayed = useMemo(() => {
+    const base = machineFilter === 'all' ? logs : logs.filter(l => l.computer_id === machineFilter);
+    return base.slice(0, 20);
+  }, [logs, machineFilter]);
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+    fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+    background: active ? 'var(--accent)' : 'transparent',
+    color: active ? '#fff' : 'var(--muted)',
+  });
+
   return (
     <div style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}>
-      <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <h2 style={sectionTitle}>Live Session Feed</h2>
+        {allMachineIds.length > 1 && (
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24 }}>
+            <button style={tabStyle(machineFilter === 'all')} onClick={() => setMachineFilter('all')}>All</button>
+            {allMachineIds.map(id => {
+              const mc = getMachineColor(id, allMachineIds);
+              return (
+                <button key={id} onClick={() => setMachineFilter(id)}
+                  style={{
+                    ...tabStyle(machineFilter === id),
+                    background: machineFilter === id ? mc.border : 'transparent',
+                    color: machineFilter === id ? '#fff' : mc.text,
+                  }}>
+                  {id}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -674,13 +725,20 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
             </tr>
           </thead>
           <tbody>
-            {recent.map((log, i) => {
+            {displayed.map((log, i) => {
               const t = parseISO(log.start_time);
+              const mc = getMachineColor(log.computer_id, allMachineIds);
               return (
                 <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', transition: 'background 0.1s' }}>
                   <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
-                  <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text)' }}>{log.computer_id}</td>
-                  <td style={{ ...tdStyle, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.game_name}</td>
+                  <td style={{ ...tdStyle }}>
+                    <span style={{
+                      display: 'inline-block', padding: '2px 8px', borderRadius: 12,
+                      background: mc.bg, color: mc.text, fontWeight: 700, fontSize: 11,
+                      border: `1px solid ${mc.border}30`,
+                    }}>{log.computer_id}</span>
+                  </td>
+                  <td style={{ ...tdStyle, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{log.game_name}</td>
                   <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
                   <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
                   <td style={tdStyle}>
@@ -689,7 +747,7 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
                 </tr>
               );
             })}
-            {recent.length === 0 && (
+            {displayed.length === 0 && (
               <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Waiting for sessions…</td></tr>
             )}
           </tbody>
@@ -704,42 +762,130 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 type ActivityFilter = 'today' | 'week' | 'month' | 'custom';
 
-function DayTotalBanner({ logs, date }: { logs: GameLog[]; date: string }) {
-  const dl = logs.filter(l => l.date === date);
+function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
+  logs: GameLog[]; date: string; machineFilter: string; allMachineIds: string[];
+}) {
+  const dl = logs.filter(l => l.date === date && (machineFilter === 'all' || l.computer_id === machineFilter));
   if (dl.length === 0) return null;
-  const revenue = dl.reduce((s, l) => s + l.revenue_ksh, 0);
-  const full = dl.filter(l => l.status === 'FULL GAME').length;
-  const partial = dl.filter(l => l.status === 'PARTIAL').length;
-  const errors = dl.filter(l => l.status === 'ERROR').length;
-  const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0);
+
+  const totals = (rows: GameLog[]) => ({
+    sessions: rows.length,
+    revenue: rows.reduce((s, l) => s + l.revenue_ksh, 0),
+    full: rows.filter(l => l.status === 'FULL GAME').length,
+    partial: rows.filter(l => l.status === 'PARTIAL').length,
+    errors: rows.filter(l => l.status === 'ERROR').length,
+    playtime: rows.reduce((s, l) => s + l.duration_minutes, 0),
+  });
+
+  const overall = totals(dl);
+
+  // Per-machine breakdown only when viewing all machines and >1 machine present
+  const machineBreakdown = machineFilter === 'all' && allMachineIds.length > 1
+    ? allMachineIds.map(id => ({ id, mc: getMachineColor(id, allMachineIds), t: totals(dl.filter(l => l.computer_id === id)) })).filter(x => x.t.sessions > 0)
+    : [];
+
   return (
     <div style={{
       background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(99,102,241,0.05) 100%)',
       border: '1px solid rgba(99,102,241,0.25)',
       borderRadius: 12, padding: '14px 18px', marginBottom: 12,
-      display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Calendar size={15} color="var(--accent)" />
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-          {date === todayStr() ? 'Today' : format(parseISO(date), 'EEEE, MMM d')}
-        </span>
+      {/* Date + overall totals */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Calendar size={15} color="var(--accent)" />
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+            {date === todayStr() ? 'Today' : format(parseISO(date), 'EEEE, MMM d')}
+          </span>
+          {machineFilter !== 'all' && (
+            <span style={{ fontSize: 11, color: getMachineColor(machineFilter, allMachineIds).text, fontWeight: 600, marginLeft: 4 }}>
+              · {machineFilter}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginLeft: 'auto' }}>
+          {[
+            { label: 'Sessions', value: String(overall.sessions), color: 'var(--text)' },
+            { label: 'Revenue', value: fmtKSH(overall.revenue), color: '#10b981' },
+            { label: 'Full', value: String(overall.full), color: '#10b981' },
+            { label: 'Partial', value: String(overall.partial), color: '#f59e0b' },
+            { label: 'Errors', value: String(overall.errors), color: '#ef4444' },
+            { label: 'Playtime', value: `${overall.playtime.toFixed(0)}m`, color: 'var(--muted)' },
+          ].map(s => (
+            <div key={s.label} style={{ textAlign: 'center' }}>
+              <p style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{s.label}</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: 'var(--font-display)' }}>{s.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginLeft: 'auto' }}>
-        {[
-          { label: 'Sessions', value: String(dl.length), color: 'var(--text)' },
-          { label: 'Revenue', value: fmtKSH(revenue), color: '#10b981' },
-          { label: 'Full', value: String(full), color: '#10b981' },
-          { label: 'Partial', value: String(partial), color: '#f59e0b' },
-          { label: 'Errors', value: String(errors), color: '#ef4444' },
-          { label: 'Playtime', value: `${playtime.toFixed(0)}m`, color: 'var(--muted)' },
-        ].map(s => (
-          <div key={s.label} style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{s.label}</p>
-            <p style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: 'var(--font-display)' }}>{s.value}</p>
-          </div>
-        ))}
-      </div>
+
+      {/* Per-machine breakdown row */}
+      {machineBreakdown.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(99,102,241,0.2)' }}>
+          {machineBreakdown.map(({ id, mc, t }) => (
+            <div key={id} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+              background: mc.bg, border: `1px solid ${mc.border}40`, borderRadius: 8,
+              fontSize: 12,
+            }}>
+              <span style={{ fontWeight: 700, color: mc.text }}>{id}</span>
+              <span style={{ color: 'var(--muted)' }}>·</span>
+              <span style={{ color: 'var(--text)' }}>{t.sessions} sessions</span>
+              <span style={{ color: 'var(--muted)' }}>·</span>
+              <span style={{ color: '#10b981', fontWeight: 600 }}>{fmtKSH(t.revenue)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MachineSessionTable({ logs, allMachineIds, showMachineCol }: {
+  logs: GameLog[]; allMachineIds: string[]; showMachineCol: boolean;
+}) {
+  if (logs.length === 0) return (
+    <p style={{ padding: '16px', color: 'var(--muted)', fontSize: 13 }}>No sessions.</p>
+  );
+  const cols = showMachineCol
+    ? ['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status']
+    : ['Time', 'Game', 'Duration', 'Revenue', 'Status'];
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ background: 'var(--surface2)' }}>
+            {cols.map(h => (
+              <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {logs.map((log, i) => {
+            const t = parseISO(log.start_time);
+            const mc = getMachineColor(log.computer_id, allMachineIds);
+            return (
+              <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
+                {showMachineCol && (
+                  <td style={{ ...tdStyle }}>
+                    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: mc.bg, color: mc.text, fontWeight: 700, fontSize: 11, border: `1px solid ${mc.border}30` }}>
+                      {log.computer_id}
+                    </span>
+                  </td>
+                )}
+                <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{log.game_name}</td>
+                <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
+                <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
+                <td style={tdStyle}>
+                  <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -749,39 +895,31 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
   const [customDate, setCustomDate] = useState(todayStr());
   const [machineFilter, setMachineFilter] = useState<string>('all');
 
-  const machines = useMemo(() => {
-    const ids = [...new Set(logs.map(l => l.computer_id))];
-    return ids;
-  }, [logs]);
+  const allMachineIds = useMemo(() =>
+    [...new Set(logs.map(l => l.computer_id))].sort(),
+  [logs]);
 
-  // Compute date range based on filter
   const { rangeStart, rangeEnd } = useMemo(() => {
     const now = new Date();
     if (filter === 'today') return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
     if (filter === 'week') return { rangeStart: startOfWeek(now, { weekStartsOn: 1 }), rangeEnd: endOfWeek(now, { weekStartsOn: 1 }) };
     if (filter === 'month') return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) };
-    // custom — single day
     const d = parseISO(customDate);
     return { rangeStart: startOfDay(d), rangeEnd: endOfDay(d) };
   }, [filter, customDate]);
 
-  const filtered = useMemo(() => {
-    return logs.filter(l => {
+  const filtered = useMemo(() =>
+    logs.filter(l => {
       const d = parseISO(l.start_time);
-      const inRange = d >= rangeStart && d <= rangeEnd;
-      const inMachine = machineFilter === 'all' || l.computer_id === machineFilter;
-      return inRange && inMachine;
-    });
-  }, [logs, rangeStart, rangeEnd, machineFilter]);
+      return d >= rangeStart && d <= rangeEnd &&
+        (machineFilter === 'all' || l.computer_id === machineFilter);
+    }),
+  [logs, rangeStart, rangeEnd, machineFilter]);
 
-  // Group by date
-  const grouped = useMemo(() => {
+  // Group by date desc
+  const groupedByDate = useMemo(() => {
     const map = new Map<string, GameLog[]>();
-    filtered.forEach(l => {
-      const arr = map.get(l.date) ?? [];
-      arr.push(l);
-      map.set(l.date, arr);
-    });
+    filtered.forEach(l => { const a = map.get(l.date) ?? []; a.push(l); map.set(l.date, a); });
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
 
@@ -792,6 +930,17 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
     color: active ? '#fff' : 'var(--muted)',
   });
 
+  const machineTabStyle = (id: string): React.CSSProperties => {
+    const active = machineFilter === id;
+    const mc = id === 'all' ? null : getMachineColor(id, allMachineIds);
+    return {
+      padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+      fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+      background: active ? (mc ? mc.border : 'var(--accent)') : 'transparent',
+      color: active ? '#fff' : (mc ? mc.text : 'var(--muted)'),
+    };
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {/* Filter bar */}
@@ -799,7 +948,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
             <Filter size={14} color="var(--muted)" />
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filter:</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Period:</span>
           </div>
           {(['today', 'week', 'month', 'custom'] as ActivityFilter[]).map(f => (
             <button key={f} onClick={() => setFilter(f)} style={filterBtnStyle(filter === f)}>
@@ -810,56 +959,53 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
             <input type="date" value={customDate} max={todayStr()} onChange={e => setCustomDate(e.target.value)}
               style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--text)', fontSize: 13, cursor: 'pointer', outline: 'none' }} />
           )}
-          {machines.length > 1 && (
-            <select value={machineFilter} onChange={e => setMachineFilter(e.target.value)}
-              style={{ ...inputStyle, width: 'auto', padding: '6px 12px', marginLeft: 'auto', cursor: 'pointer' }}>
-              <option value="all">All Machines</option>
-              {machines.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+          {/* Machine tabs — only shown when >1 machine exists */}
+          {allMachineIds.length > 1 && (
+            <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, marginLeft: 'auto' }}>
+              <button style={machineTabStyle('all')} onClick={() => setMachineFilter('all')}>All</button>
+              {allMachineIds.map(id => (
+                <button key={id} style={machineTabStyle(id)} onClick={() => setMachineFilter(id)}>{id}</button>
+              ))}
+            </div>
           )}
         </div>
       </div>
 
       {/* Results */}
-      {grouped.length === 0 ? (
+      {groupedByDate.length === 0 ? (
         <div style={cardStyle}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions found for this period.</p></div>
-      ) : (
-        grouped.map(([date, dayLogs]) => (
-          <div key={date}>
-            <DayTotalBanner logs={logs} date={date} />
-            <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--surface2)' }}>
-                      {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map(h => (
-                        <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayLogs.map((log, i) => {
-                      const t = parseISO(log.start_time);
-                      return (
-                        <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                          <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
-                          <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text)' }}>{log.computer_id}</td>
-                          <td style={{ ...tdStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.game_name}</td>
-                          <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
-                          <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
-                          <td style={tdStyle}>
-                            <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+      ) : groupedByDate.map(([date, dayLogs]) => (
+        <div key={date}>
+          <DayTotalBanner logs={logs} date={date} machineFilter={machineFilter} allMachineIds={allMachineIds} />
+
+          {/* When viewing ALL machines: show one sub-table per machine */}
+          {machineFilter === 'all' && allMachineIds.length > 1 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {allMachineIds.map(machineId => {
+                const machineLogs = dayLogs.filter(l => l.computer_id === machineId);
+                if (machineLogs.length === 0) return null;
+                const mc = getMachineColor(machineId, allMachineIds);
+                return (
+                  <div key={machineId} style={{ ...cardStyle, padding: 0, overflow: 'hidden', borderLeft: `3px solid ${mc.border}` }}>
+                    <div style={{ padding: '10px 16px', background: mc.bg, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: mc.text }}>{machineId}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        · {machineLogs.length} session{machineLogs.length !== 1 ? 's' : ''} · {fmtKSH(machineLogs.reduce((s, l) => s + l.revenue_ksh, 0))}
+                      </span>
+                    </div>
+                    <MachineSessionTable logs={machineLogs} allMachineIds={allMachineIds} showMachineCol={false} />
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        ))
-      )}
+          ) : (
+            /* Single machine view — clean table, no machine column needed */
+            <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+              <MachineSessionTable logs={dayLogs} allMachineIds={allMachineIds} showMachineCol={false} />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -870,12 +1016,16 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
 function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
   const [sortBy, setSortBy] = useState<'revenue' | 'sessions' | 'avg_duration'>('revenue');
   const [period, setPeriod] = useState<7 | 30 | 90 | 999>(30);
+  const [machineFilter, setMachineFilter] = useState<string>('all');
+
+  const allMachineIds = useMemo(() =>
+    [...new Set(logs.map(l => l.computer_id))].sort(),
+  [logs]);
 
   const filtered = useMemo(() => {
-    if (period === 999) return logs;
-    const cutoff = startOfDay(subDays(new Date(), period));
-    return logs.filter(l => parseISO(l.start_time) >= cutoff);
-  }, [logs, period]);
+    const byPeriod = period === 999 ? logs : logs.filter(l => parseISO(l.start_time) >= startOfDay(subDays(new Date(), period)));
+    return machineFilter === 'all' ? byPeriod : byPeriod.filter(l => l.computer_id === machineFilter);
+  }, [logs, period, machineFilter]);
 
   const gameStats = useMemo(() => {
     const map = new Map<string, { sessions: number; revenue: number; full: number; partial: number; errors: number; total_minutes: number }>();
@@ -904,9 +1054,25 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
     background: active ? 'var(--accent)' : 'var(--surface2)', color: active ? '#fff' : 'var(--muted)', transition: 'all 0.15s',
   });
 
+  const machineTabStyle = (id: string): React.CSSProperties => {
+    const active = machineFilter === id;
+    const mc = id === 'all' ? null : getMachineColor(id, allMachineIds);
+    return {
+      padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+      fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+      background: active ? (mc ? mc.border : 'var(--accent)') : 'transparent',
+      color: active ? '#fff' : (mc ? mc.text : 'var(--muted)'),
+    };
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Summary */}
+      {/* Summary KPIs — scoped to active machine filter */}
+      {allMachineIds.length > 1 && machineFilter !== 'all' && (
+        <div style={{ padding: '8px 14px', borderRadius: 8, background: getMachineColor(machineFilter, allMachineIds).bg, border: `1px solid ${getMachineColor(machineFilter, allMachineIds).border}40`, fontSize: 13, color: getMachineColor(machineFilter, allMachineIds).text, fontWeight: 600 }}>
+          Filtered to: {machineFilter}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
         {[
           { label: 'Unique Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
@@ -924,17 +1090,32 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
 
       {/* Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={sectionTitle}>Game Leaderboard</h2>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>Sort:</span>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={sectionTitle}>Game Leaderboard</h2>
+            {allMachineIds.length > 1 && (
+              <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24 }}>
+                <button style={machineTabStyle('all')} onClick={() => setMachineFilter('all')}>All Machines</button>
+                {allMachineIds.map(id => (
+                  <button key={id} style={machineTabStyle(id)} onClick={() => setMachineFilter(id)}>{id}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sort:</span>
             <button onClick={() => setSortBy('revenue')} style={btnStyle(sortBy === 'revenue')}>Revenue</button>
             <button onClick={() => setSortBy('sessions')} style={btnStyle(sortBy === 'sessions')}>Sessions</button>
             <button onClick={() => setSortBy('avg_duration')} style={btnStyle(sortBy === 'avg_duration')}>Avg Duration</button>
-            <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center', marginLeft: 8 }}>Period:</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>Period:</span>
             {([7, 30, 90, 999] as const).map(p => (
               <button key={p} onClick={() => setPeriod(p)} style={btnStyle(period === p)}>{p === 999 ? 'All' : `${p}d`}</button>
             ))}
+            {machineFilter !== 'all' && (
+              <span style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px', borderRadius: 20, background: getMachineColor(machineFilter, allMachineIds).bg, color: getMachineColor(machineFilter, allMachineIds).text, fontWeight: 600 }}>
+                Showing: {machineFilter}
+              </span>
+            )}
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -1281,7 +1462,7 @@ function SettingsView({ config, updateConfig, machines }: {
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { logs, loading } = useGameLogs(1000);
+  const { logs, setLogs, loading } = useGameLogs(1000);
   const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
   const { config, loading: configLoading, updateConfig } = usePricingConfig();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1305,48 +1486,72 @@ export default function Dashboard() {
 
   const deleteMachine = async (computerId: string) => {
     try {
-      // Optimistically remove from UI immediately
+      // 1. Optimistically update both UI states immediately
       setMachines(prev => prev.filter(m => m.computer_id !== computerId));
+      setLogs(prev => prev.filter(l => l.computer_id !== computerId));
 
-      const { error } = await supabase
+      // 2. Delete machine_status row
+      const { error: machineError } = await supabase
         .from('machine_status')
         .delete()
         .eq('computer_id', computerId);
+      if (machineError) throw machineError;
 
-      if (error) throw error;
+      // 3. Delete all game_logs for this machine
+      const { error: logsError } = await supabase
+        .from('game_logs')
+        .delete()
+        .eq('computer_id', computerId);
+      if (logsError) throw logsError;
 
-      // NOTE: We only delete from machine_status, NOT game_logs —
-      // that would erase historical KSH accounting data for this machine.
+      // 4. Delete machine_pricing override row if it exists
+      await supabase
+        .from('machine_pricing')
+        .delete()
+        .eq('computer_id', computerId);
+      // Pricing delete failure is non-fatal — ignore error
 
     } catch (err) {
       console.error('Error deleting machine:', err);
       alert('Failed to delete machine. Check console for details.');
-      // Roll back the optimistic update by re-fetching
+      // Roll back both states
       refetchMachines();
     }
   };
 
   const clearAllMachines = async () => {
     try {
-      // Snapshot IDs before clearing UI
       const ids = machines.map(m => m.computer_id);
 
-      // Optimistically clear UI immediately
+      // 1. Optimistically clear both UI states immediately
       setMachines([]);
+      setLogs([]);
 
       if (ids.length === 0) return;
 
-      const { error } = await supabase
+      // 2. Delete all machine_status rows
+      const { error: machineError } = await supabase
         .from('machine_status')
         .delete()
         .in('computer_id', ids);
+      if (machineError) throw machineError;
 
-      if (error) throw error;
+      // 3. Delete all game_logs for these machines
+      const { error: logsError } = await supabase
+        .from('game_logs')
+        .delete()
+        .in('computer_id', ids);
+      if (logsError) throw logsError;
+
+      // 4. Delete all machine_pricing override rows
+      await supabase
+        .from('machine_pricing')
+        .delete()
+        .in('computer_id', ids);
 
     } catch (err) {
       console.error('Error clearing machines:', err);
       alert('Failed to clear machines. Check console for details.');
-      // Roll back by re-fetching
       refetchMachines();
     }
   };
@@ -1366,7 +1571,7 @@ export default function Dashboard() {
           --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
           --border: rgba(255,255,255,0.07); --text: #f0f2f8;
           --muted: #6b7280; --accent: #6366f1;
-          --font-display: 'Syne', sans-serif; --font-body: 'DM Sans', sans-serif;
+          --font-display: 'DM Sans', sans-serif; --font-body: 'DM Sans', sans-serif;
         }
         body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; }
         @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }

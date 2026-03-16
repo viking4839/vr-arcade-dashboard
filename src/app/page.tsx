@@ -1,22 +1,6 @@
-/**
- * VR Arcade Analytics Dashboard — Personal Control Panel
- * ───────────────────────────────────────────────────────
- * Features:
- * - Sidebar navigation (Dashboard, Analytics, Activity, Resources, Settings)
- * - User profile header
- * - Real‑time revenue and session tracking
- * - Daily progress toward target
- * - Central pricing configuration (editable from Settings)
- * - Live session feed, charts, and date picker
- *
- * Env vars required:
- *   NEXT_PUBLIC_SUPABASE_URL
- *   NEXT_PUBLIC_SUPABASE_ANON_KEY
- */
-
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   AreaChart, Area, BarChart, Bar,
@@ -25,17 +9,18 @@ import {
 } from 'recharts';
 import {
   subDays, format, startOfDay, endOfDay,
-  parseISO, isValid,
+  parseISO, isValid, startOfMonth, endOfMonth,
+  startOfWeek, endOfWeek,
 } from 'date-fns';
 import {
-  LayoutDashboard,
-  BarChart3,
-  Activity,
-  BookOpen,
-  Settings,
+  LayoutDashboard, BarChart3, Activity, Zap,
+  Settings, Menu, X, Trash2, AlertTriangle,
+  ChevronDown, ChevronUp, Calendar, Filter,
+  TrendingUp, Clock, Award, Gamepad2,
 } from 'lucide-react';
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Supabase Client
+// Supabase
 // ─────────────────────────────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,24 +42,23 @@ interface GameLog {
   date: string;
   created_at: string;
 }
-
-interface MachineStatus {
-  computer_id: string;
-  last_seen: string;
-  status: string;
-}
-
+interface MachineStatus { computer_id: string; last_seen: string; status: string; }
 interface MachineWithOnline extends MachineStatus {
   is_online: boolean;
+  custom_rate_per_full_game: number | null;
+  custom_rate_per_minute: number | null;
+  label: string;
 }
-
-interface PricingConfig {
-  id: number;
-  use_per_minute: boolean;
-  rate_per_full_game: number;
-  rate_per_minute: number;
-  daily_target_ksh: number;
+interface MachinePricing {
+  computer_id: string;
+  custom_rate_per_full_game: number | null;
+  custom_rate_per_minute: number | null;
+  label: string;
   updated_at: string;
+}
+interface PricingConfig {
+  id: number; use_per_minute: boolean; rate_per_full_game: number;
+  rate_per_minute: number; daily_target_ksh: number; updated_at: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,262 +66,360 @@ interface PricingConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 const fmtKSH = (n: number) =>
   `KSH ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 const todayStr = () => new Date().toISOString().slice(0, 10);
+const statusColor = (s: string) =>
+  s === 'FULL GAME' ? '#10b981' : s === 'PARTIAL' ? '#f59e0b' : '#ef4444';
+const statusBg = (s: string) =>
+  s === 'FULL GAME' ? 'rgba(16,185,129,0.15)' : s === 'PARTIAL' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
 
-const statusColor = (s: string) => {
-  if (s === 'FULL GAME') return '#10b981';
-  if (s === 'PARTIAL') return '#f59e0b';
-  return '#ef4444';
-};
 
-const statusBg = (s: string) => {
-  if (s === 'FULL GAME') return 'rgba(16,185,129,0.15)';
-  if (s === 'PARTIAL') return 'rgba(245,158,11,0.15)';
-  return 'rgba(239,68,68,0.15)';
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hooks
 // ─────────────────────────────────────────────────────────────────────────────
-function useGameLogs(limit = 500) {
+function useGameLogs(limit = 1000) {
   const [logs, setLogs] = useState<GameLog[]>([]);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     let channel: RealtimeChannel;
-
     const fetchLogs = async () => {
       const { data, error } = await supabase
-        .from('game_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
+        .from('game_logs').select('*')
+        .order('created_at', { ascending: false }).limit(limit);
       if (!error && data) setLogs(data as GameLog[]);
       setLoading(false);
     };
-
     fetchLogs();
-
-    channel = supabase
-      .channel('game_logs_rt')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'game_logs' },
-        (payload) => {
-          setLogs((prev) => [payload.new as GameLog, ...prev].slice(0, limit));
-        }
-      )
+    channel = supabase.channel('game_logs_rt')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_logs' },
+        (payload) => setLogs(prev => [payload.new as GameLog, ...prev].slice(0, limit)))
       .subscribe();
-
-    return () => {
-      channel?.unsubscribe();
-    };
+    return () => { channel?.unsubscribe(); };
   }, [limit]);
-
   return { logs, loading };
 }
 
 function useMachineStatus() {
   const [machines, setMachines] = useState<MachineStatus[]>([]);
+  const [pricingMap, setPricingMap] = useState<Record<string, MachinePricing>>({});
 
-  const fetch = useCallback(async () => {
-    const { data } = await supabase.from('machine_status').select('*');
-    if (data) setMachines(data as MachineStatus[]);
+  const fetchMachines = useCallback(async () => {
+    const [{ data: statusData }, { data: pricingData }] = await Promise.all([
+      supabase.from('machine_status').select('*'),
+      supabase.from('machine_pricing').select('*'),
+    ]);
+    if (statusData) setMachines(statusData as MachineStatus[]);
+    if (pricingData) {
+      const map: Record<string, MachinePricing> = {};
+      (pricingData as MachinePricing[]).forEach(p => { map[p.computer_id] = p; });
+      setPricingMap(map);
+    }
   }, []);
 
   useEffect(() => {
-    fetch();
-    const channel = supabase
-      .channel('machine_status_rt')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'machine_status' },
-        () => fetch()
-      )
+    fetchMachines();
+    const ch = supabase.channel('machine_status_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_status' }, () => fetchMachines())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_pricing' }, () => fetchMachines())
       .subscribe();
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [fetch]);
+    return () => { ch.unsubscribe(); };
+  }, [fetchMachines]);
 
   const now = Date.now();
-  return machines.map((m) => ({
-    ...m,
-    is_online: new Date(m.last_seen).getTime() > now - 5 * 60 * 1000,
-  })) as MachineWithOnline[];
+  return {
+    machines: machines.map(m => ({
+      ...m,
+      is_online: new Date(m.last_seen).getTime() > now - 5 * 60 * 1000,
+      custom_rate_per_full_game: pricingMap[m.computer_id]?.custom_rate_per_full_game ?? null,
+      custom_rate_per_minute: pricingMap[m.computer_id]?.custom_rate_per_minute ?? null,
+      label: pricingMap[m.computer_id]?.label ?? m.computer_id,
+    })) as MachineWithOnline[],
+    setMachines,
+    refetch: fetchMachines,
+  };
 }
 
 function usePricingConfig() {
   const [config, setConfig] = useState<PricingConfig | null>(null);
   const [loading, setLoading] = useState(true);
-
   const fetchConfig = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('pricing_config')
-      .select('*')
-      .eq('id', 1)
-      .single();
+    const { data, error } = await supabase.from('pricing_config').select('*').eq('id', 1).single();
     if (!error && data) setConfig(data as PricingConfig);
     setLoading(false);
   }, []);
-
-  useEffect(() => {
-    fetchConfig();
-  }, [fetchConfig]);
-
+  useEffect(() => { fetchConfig(); }, [fetchConfig]);
   const updateConfig = async (updates: Partial<PricingConfig>) => {
     if (!config) return;
-    const { error } = await supabase
-      .from('pricing_config')
-      .update(updates)
-      .eq('id', 1);
-    if (!error) {
-      setConfig({ ...config, ...updates });
-    }
+    const { error } = await supabase.from('pricing_config').update(updates).eq('id', 1);
+    if (!error) setConfig({ ...config, ...updates });
     return error;
   };
-
   return { config, loading, updateConfig };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Layout Components
+// Shared Styles
 // ─────────────────────────────────────────────────────────────────────────────
+const cardStyle: React.CSSProperties = {
+  background: 'var(--surface)', border: '1px solid var(--border)',
+  borderRadius: 14, padding: '20px 24px',
+};
+const sectionTitle: React.CSSProperties = {
+  fontSize: 16, fontWeight: 700, color: 'var(--text)',
+  fontFamily: 'var(--font-display)', margin: 0,
+};
+const tdStyle: React.CSSProperties = { padding: '12px 16px', color: 'var(--muted)', whiteSpace: 'nowrap' };
+const inputStyle: React.CSSProperties = {
+  background: 'var(--surface2)', border: '1px solid var(--border)',
+  borderRadius: 6, padding: '10px 12px', color: 'var(--text)', fontSize: 13, width: '100%', outline: 'none',
+};
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Confirm Modal
+// ─────────────────────────────────────────────────────────────────────────────
+function ConfirmModal({ message, onConfirm, onCancel }: {
+  message: string; onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: 28, maxWidth: 400, width: '90%',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+        display: 'flex', flexDirection: 'column', gap: 20,
+      }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <AlertTriangle size={22} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <h3 style={{ margin: '0 0 8px', color: 'var(--text)', fontFamily: 'var(--font-display)', fontSize: 16 }}>
+              Confirm Action
+            </h3>
+            <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>{message}</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{
+            padding: '8px 18px', borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--surface2)',
+            color: 'var(--text)', fontSize: 13, cursor: 'pointer',
+          }}>Cancel</button>
+          <button onClick={onConfirm} style={{
+            padding: '8px 18px', borderRadius: 8, border: 'none',
+            background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          }}>Yes, Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sidebar
+// ─────────────────────────────────────────────────────────────────────────────
 const sidebarItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'activity', label: 'Activity', icon: Activity },
-  { id: 'resources', label: 'Resources', icon: BookOpen },
+  { id: 'intelligence', label: 'Game Intel', icon: Zap },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export function Sidebar({
-  active,
-  onNavigate,
-}: {
-  active: string;
-  onNavigate: (id: string) => void;
+function Sidebar({ active, onNavigate, collapsed, onToggle }: {
+  active: string; onNavigate: (id: string) => void;
+  collapsed: boolean; onToggle: () => void;
 }) {
   return (
-    <aside
-      style={{
-        width: 240,
+    <>
+      {/* Mobile overlay */}
+      {!collapsed && (
+        <div
+          onClick={onToggle}
+          style={{
+            display: 'none',
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 40,
+          }}
+          className="mobile-overlay"
+        />
+      )}
+      <aside style={{
+        width: collapsed ? 64 : 220,
         background: 'var(--surface)',
         borderRight: '1px solid var(--border)',
-        padding: '24px 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      <div style={{ padding: '0 12px 24px', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
-          VR Arcade
-        </h2>
-      </div>
-
-      {sidebarItems.map((item) => {
-        // We assign the icon component to a capitalized variable so React treats it as a component, not an HTML tag
-        const Icon = item.icon;
-
-        return (
-          <button
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '12px 16px',
-              borderRadius: 8,
-              border: 'none',
-              background: active === item.id ? 'var(--accent)' : 'transparent',
-              color: active === item.id ? '#fff' : 'var(--muted)',
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              width: '100%',
-              textAlign: 'left',
-            }}
-          >
-            <Icon size={18} />
-            {item.label}
+        padding: collapsed ? '16px 8px' : '20px 10px',
+        display: 'flex', flexDirection: 'column', gap: 4,
+        transition: 'width 0.2s ease, padding 0.2s ease',
+        flexShrink: 0, overflow: 'hidden',
+        position: 'relative', zIndex: 50,
+      }}>
+        {/* Logo + toggle */}
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'space-between',
+          marginBottom: 20, padding: collapsed ? 0 : '0 6px',
+        }}>
+          {!collapsed && (
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+              VR Arcade
+            </h2>
+          )}
+          <button onClick={onToggle} style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--muted)', padding: 4, borderRadius: 6, display: 'flex',
+          }}>
+            {collapsed ? <Menu size={18} /> : <X size={18} />}
           </button>
-        );
-      })}
-    </aside>
+        </div>
+
+        {sidebarItems.map(item => {
+          const Icon = item.icon;
+          const isActive = active === item.id;
+          return (
+            <button key={item.id} onClick={() => onNavigate(item.id)} title={collapsed ? item.label : undefined}
+              style={{
+                display: 'flex', alignItems: 'center',
+                gap: collapsed ? 0 : 10,
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                padding: collapsed ? '10px' : '10px 12px',
+                borderRadius: 8, border: 'none',
+                background: isActive ? 'var(--accent)' : 'transparent',
+                color: isActive ? '#fff' : 'var(--muted)',
+                fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                transition: 'all 0.15s', width: '100%', whiteSpace: 'nowrap',
+              }}>
+              <Icon size={17} />
+              {!collapsed && item.label}
+            </button>
+          );
+        })}
+      </aside>
+    </>
   );
 }
 
-function Header({ now }: { now: Date }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Header
+// ─────────────────────────────────────────────────────────────────────────────
+function Header({ now, onMenuToggle }: { now: Date; onMenuToggle: () => void }) {
   return (
-    <header
-      style={{
-        background: 'var(--surface)',
-        borderBottom: '1px solid var(--border)',
-        padding: '12px 24px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span style={{ fontSize: 14, color: 'var(--muted)' }}>Welcome back,</span>
-        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Arcade Owner</span>
+    <header style={{
+      background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+      padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onMenuToggle} className="mobile-menu-btn" style={{
+          display: 'none', background: 'transparent', border: 'none',
+          color: 'var(--muted)', cursor: 'pointer', padding: 4,
+        }}>
+          <Menu size={20} />
+        </button>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>Welcome back,</span>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Arcade Owner</span>
       </div>
-      <div style={{ fontSize: 14, color: 'var(--muted)' }}>
-        {format(now, 'EEEE, MMMM do, HH:mm:ss')}
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+        {format(now, 'EEE, MMM do · HH:mm:ss')}
       </div>
     </header>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// View Components
+// Loading
 // ─────────────────────────────────────────────────────────────────────────────
-
 function LoadingScreen() {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg)',
-        gap: '1.5rem',
-      }}
-    >
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', gap: '1.5rem' }}>
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            style={{
-              width: 14,
-              height: 14,
-              borderRadius: '50%',
-              background: 'var(--accent)',
-              animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-            }}
-          />
-        ))}
+        {[0, 1, 2].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: 'var(--accent)', animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />)}
       </div>
-      <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-body)', fontSize: 14 }}>
-        Connecting to arcade…
-      </p>
+      <p style={{ color: 'var(--muted)', fontSize: 14 }}>Connecting to arcade…</p>
     </div>
   );
 }
 
-// Progress card for dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+// Machine Status Cards (with delete)
+// ─────────────────────────────────────────────────────────────────────────────
+function MachineStatusCards({ machines, onDelete, onClearAll }: {
+  machines: MachineWithOnline[];
+  onDelete: (id: string) => void;
+  onClearAll: () => void;
+}) {
+  const [confirm, setConfirm] = useState<{ type: 'single' | 'all'; id?: string } | null>(null);
+
+  if (machines.length === 0)
+    return <div style={cardStyle}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No machines registered yet.</p></div>;
+
+  return (
+    <>
+      {confirm && (
+        <ConfirmModal
+          message={confirm.type === 'all'
+            ? 'This will delete ALL machine records from Supabase. This cannot be undone.'
+            : `Remove machine "${confirm.id}" from the database? It will re-appear automatically the next time it sends a heartbeat.`}
+          onConfirm={() => { confirm.type === 'all' ? onClearAll() : onDelete(confirm.id!); setConfirm(null); }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+          {machines.map(m => (
+            <div key={m.computer_id} style={{
+              ...cardStyle, flex: '1 1 200px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              borderLeft: `3px solid ${m.is_online ? '#10b981' : '#ef4444'}`,
+            }}>
+              <div>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Machine</p>
+                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{m.computer_id}</p>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Last seen {isValid(parseISO(m.last_seen)) ? format(parseISO(m.last_seen), 'HH:mm:ss') : '—'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: m.is_online ? '#10b981' : '#ef4444', boxShadow: m.is_online ? '0 0 8px #10b981' : 'none', animation: m.is_online ? 'glow 2s ease-in-out infinite' : 'none' }} />
+                  <span style={{ fontSize: 11, color: m.is_online ? '#10b981' : '#ef4444', fontWeight: 600 }}>{m.is_online ? 'ONLINE' : 'OFFLINE'}</span>
+                </div>
+                <button
+                  onClick={() => setConfirm({ type: 'single', id: m.computer_id })}
+                  title="Remove machine"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 4, display: 'flex' }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {machines.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setConfirm({ type: 'all' })}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'transparent', border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 8, padding: '6px 14px', color: '#ef4444',
+                fontSize: 12, cursor: 'pointer',
+              }}>
+              <Trash2 size={13} /> Clear All Machines
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Progress Card
+// ─────────────────────────────────────────────────────────────────────────────
 function ProgressCard({ todayRevenue, dailyTarget }: { todayRevenue: number; dailyTarget: number }) {
   const percent = dailyTarget > 0 ? Math.min(100, (todayRevenue / dailyTarget) * 100) : 0;
   const remaining = Math.max(0, dailyTarget - todayRevenue);
-
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Today's Progress</h2>
@@ -346,186 +428,65 @@ function ProgressCard({ todayRevenue, dailyTarget }: { todayRevenue: number; dai
           <span>Revenue</span>
           <span>{fmtKSH(todayRevenue)} / {fmtKSH(dailyTarget)}</span>
         </div>
-        <div
-          style={{
-            height: 8,
-            background: 'var(--surface2)',
-            borderRadius: 4,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              width: `${percent}%`,
-              height: '100%',
-              background: 'var(--accent)',
-              borderRadius: 4,
-              transition: 'width 0.3s ease',
-            }}
-          />
+        <div style={{ height: 8, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ width: `${percent}%`, height: '100%', background: 'var(--accent)', borderRadius: 4, transition: 'width 0.3s ease' }} />
         </div>
       </div>
-      <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-        {remaining > 0 ? `${fmtKSH(remaining)} to go` : 'Target reached! 🎉'}
-      </p>
+      <p style={{ fontSize: 13, color: 'var(--muted)' }}>{remaining > 0 ? `${fmtKSH(remaining)} to go` : 'Target reached! 🎉'}</p>
     </div>
   );
 }
 
-// Machine status cards (reused)
-function MachineStatusCards({ machines }: { machines: MachineWithOnline[] }) {
-  if (machines.length === 0) {
-    return (
-      <div style={cardStyle}>
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No machines registered yet.</p>
-      </div>
-    );
-  }
-  return (
-    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-      {machines.map((m) => (
-        <div
-          key={m.computer_id}
-          style={{
-            ...cardStyle,
-            flex: '1 1 180px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderLeft: `3px solid ${m.is_online ? '#10b981' : '#ef4444'}`,
-          }}
-        >
-          <div>
-            <p
-              style={{
-                fontSize: 11,
-                color: 'var(--muted)',
-                marginBottom: 4,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-              }}
-            >
-              Machine
-            </p>
-            <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-              {m.computer_id}
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-              Last seen {format(parseISO(m.last_seen), 'HH:mm:ss')}
-            </p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <div
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: '50%',
-                background: m.is_online ? '#10b981' : '#ef4444',
-                boxShadow: m.is_online ? '0 0 8px #10b981' : 'none',
-                animation: m.is_online ? 'glow 2s ease-in-out infinite' : 'none',
-              }}
-            />
-            <span
-              style={{
-                fontSize: 11,
-                color: m.is_online ? '#10b981' : '#ef4444',
-                fontWeight: 600,
-              }}
-            >
-              {m.is_online ? 'ONLINE' : 'OFFLINE'}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Stats cards for today
+// ─────────────────────────────────────────────────────────────────────────────
+// Stats Cards
+// ─────────────────────────────────────────────────────────────────────────────
 function StatsCards({ logs }: { logs: GameLog[] }) {
   const today = todayStr();
-  const todayLogs = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
-
+  const todayLogs = useMemo(() => logs.filter(l => l.date === today), [logs, today]);
   const revenue = todayLogs.reduce((s, l) => s + l.revenue_ksh, 0);
   const sessions = todayLogs.length;
   const playtime = todayLogs.reduce((s, l) => s + l.duration_minutes, 0);
   const avg = sessions ? (playtime / sessions).toFixed(1) : '—';
-  const fullGames = todayLogs.filter((l) => l.status === 'FULL GAME').length;
-
+  const fullGames = todayLogs.filter(l => l.status === 'FULL GAME').length;
   const cards = [
     { label: "Today's Revenue", value: fmtKSH(revenue), accent: '#10b981' },
     { label: 'Sessions Today', value: String(sessions), accent: '#3b82f6' },
     { label: 'Full Games', value: String(fullGames), accent: '#8b5cf6' },
     { label: 'Avg Duration', value: `${avg} min`, accent: '#f59e0b' },
   ];
-
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-      {cards.map((c) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
+      {cards.map(c => (
         <div key={c.label} style={{ ...cardStyle, borderTop: `3px solid ${c.accent}` }}>
-          <p
-            style={{
-              fontSize: 11,
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.07em',
-              marginBottom: 8,
-            }}
-          >
-            {c.label}
-          </p>
-          <p style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>
-            {c.value}
-          </p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>{c.label}</p>
+          <p style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>{c.value}</p>
         </div>
       ))}
     </div>
   );
 }
 
-// Revenue chart (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Revenue Chart
+// ─────────────────────────────────────────────────────────────────────────────
 function RevenueChart({ logs }: { logs: GameLog[] }) {
   const [days, setDays] = useState<7 | 30 | 90>(7);
-
   const data = useMemo(() => {
     const today = new Date();
     return Array.from({ length: days }, (_, i) => {
       const day = subDays(today, days - 1 - i);
-      const ds = startOfDay(day);
-      const de = endOfDay(day);
-      const revenue = logs
-        .filter((l) => {
-          const d = parseISO(l.start_time);
-          return d >= ds && d <= de;
-        })
-        .reduce((s, l) => s + l.revenue_ksh, 0);
+      const ds = startOfDay(day), de = endOfDay(day);
+      const revenue = logs.filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de; }).reduce((s, l) => s + l.revenue_ksh, 0);
       return { date: format(day, days === 7 ? 'EEE' : 'MMM dd'), revenue: +revenue.toFixed(2) };
     });
   }, [logs, days]);
-
   return (
     <div style={cardStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={sectionTitle}>Revenue Trend</h2>
         <div style={{ display: 'flex', gap: 6 }}>
-          {([7, 30, 90] as const).map((d) => (
-            <button
-              key={d}
-              onClick={() => setDays(d)}
-              style={{
-                padding: '4px 12px',
-                borderRadius: 6,
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-                background: days === d ? 'var(--accent)' : 'var(--surface2)',
-                color: days === d ? '#fff' : 'var(--muted)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {d}d
-            </button>
+          {([7, 30, 90] as const).map(d => (
+            <button key={d} onClick={() => setDays(d)} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: days === d ? 'var(--accent)' : 'var(--surface2)', color: days === d ? '#fff' : 'var(--muted)', transition: 'all 0.15s' }}>{d}d</button>
           ))}
         </div>
       </div>
@@ -541,15 +502,7 @@ function RevenueChart({ logs }: { logs: GameLog[] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip
-              contentStyle={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                color: 'var(--text)',
-              }}
-              formatter={(v: any) => [fmtKSH(v as number), 'Revenue']}
-            />
+            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} formatter={(v: any) => [fmtKSH(v as number), 'Revenue']} />
             <Area type="monotone" dataKey="revenue" stroke="var(--accent)" strokeWidth={2} fill="url(#revGrad)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
@@ -558,27 +511,19 @@ function RevenueChart({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Session breakdown chart (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Session Breakdown Chart
+// ─────────────────────────────────────────────────────────────────────────────
 function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
   const data = useMemo(() => {
     const today = new Date();
     return Array.from({ length: 7 }, (_, i) => {
       const day = subDays(today, 6 - i);
-      const ds = startOfDay(day);
-      const de = endOfDay(day);
-      const dl = logs.filter((l) => {
-        const d = parseISO(l.start_time);
-        return d >= ds && d <= de;
-      });
-      return {
-        date: format(day, 'EEE'),
-        Full: dl.filter((l) => l.status === 'FULL GAME').length,
-        Partial: dl.filter((l) => l.status === 'PARTIAL').length,
-        Error: dl.filter((l) => l.status === 'ERROR').length,
-      };
+      const ds = startOfDay(day), de = endOfDay(day);
+      const dl = logs.filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de; });
+      return { date: format(day, 'EEE'), Full: dl.filter(l => l.status === 'FULL GAME').length, Partial: dl.filter(l => l.status === 'PARTIAL').length, Error: dl.filter(l => l.status === 'ERROR').length };
     });
   }, [logs]);
-
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 20 }}>Sessions by Day (7d)</h2>
@@ -588,14 +533,7 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis allowDecimals={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip
-              contentStyle={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                color: 'var(--text)',
-              }}
-            />
+            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
             <Bar dataKey="Full" fill="#10b981" radius={[3, 3, 0, 0]} />
             <Bar dataKey="Partial" fill="#f59e0b" radius={[3, 3, 0, 0]} />
             <Bar dataKey="Error" fill="#ef4444" radius={[3, 3, 0, 0]} />
@@ -603,14 +541,9 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
         </ResponsiveContainer>
       </div>
       <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
-        {[
-          ['Full', '#10b981'],
-          ['Partial', '#f59e0b'],
-          ['Error', '#ef4444'],
-        ].map(([l, c]) => (
+        {[['Full', '#10b981'], ['Partial', '#f59e0b'], ['Error', '#ef4444']].map(([l, c]) => (
           <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: c }} />
-            {l}
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: c }} />{l}
           </div>
         ))}
       </div>
@@ -618,51 +551,28 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Today pie chart (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Pie Chart
+// ─────────────────────────────────────────────────────────────────────────────
 function TodayPieChart({ logs }: { logs: GameLog[] }) {
   const today = todayStr();
-  const dl = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
-
+  const dl = useMemo(() => logs.filter(l => l.date === today), [logs, today]);
   const data = [
-    { name: 'Full', value: dl.filter((l) => l.status === 'FULL GAME').length, color: '#10b981' },
-    { name: 'Partial', value: dl.filter((l) => l.status === 'PARTIAL').length, color: '#f59e0b' },
-    { name: 'Error', value: dl.filter((l) => l.status === 'ERROR').length, color: '#ef4444' },
-  ].filter((d) => d.value > 0);
-
-  if (data.length === 0)
-    return (
-      <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p>
-      </div>
-    );
-
+    { name: 'Full', value: dl.filter(l => l.status === 'FULL GAME').length, color: '#10b981' },
+    { name: 'Partial', value: dl.filter(l => l.status === 'PARTIAL').length, color: '#f59e0b' },
+    { name: 'Error', value: dl.filter(l => l.status === 'ERROR').length, color: '#ef4444' },
+  ].filter(d => d.value > 0);
+  if (data.length === 0) return <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p></div>;
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Today's Breakdown</h2>
       <div style={{ height: 180 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={50}
-              outerRadius={75}
-              dataKey="value"
-              paddingAngle={3}
-            >
-              {data.map((d, i) => (
-                <Cell key={i} fill={d.color} />
-              ))}
+            <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
+              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
             </Pie>
-            <Tooltip
-              contentStyle={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                color: 'var(--text)',
-              }}
-            />
+            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
             <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
           </PieChart>
         </ResponsiveContainer>
@@ -671,102 +581,59 @@ function TodayPieChart({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Top games (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Top Games
+// ─────────────────────────────────────────────────────────────────────────────
 function TopGames({ logs }: { logs: GameLog[] }) {
   const today = todayStr();
-  const dl = useMemo(() => logs.filter((l) => l.date === today), [logs, today]);
+  const dl = useMemo(() => logs.filter(l => l.date === today), [logs, today]);
   const ranked = useMemo(() => {
     const map = new Map<string, { count: number; revenue: number }>();
-    dl.forEach((l) => {
-      const prev = map.get(l.game_name) ?? { count: 0, revenue: 0 };
-      map.set(l.game_name, { count: prev.count + 1, revenue: prev.revenue + l.revenue_ksh });
-    });
-    return [...map.entries()]
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 5);
+    dl.forEach(l => { const p = map.get(l.game_name) ?? { count: 0, revenue: 0 }; map.set(l.game_name, { count: p.count + 1, revenue: p.revenue + l.revenue_ksh }); });
+    return [...map.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 5);
   }, [dl]);
-
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Top Games Today</h2>
-      {ranked.length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions yet today</p>
-      ) : (
+      {ranked.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions yet today</p> :
         ranked.map(([name, stats], i) => (
-          <div
-            key={name}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '8px 0',
-              borderBottom: i < ranked.length - 1 ? '1px solid var(--border)' : 'none',
-            }}
-          >
+          <div key={name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < ranked.length - 1 ? '1px solid var(--border)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 12, color: 'var(--muted)', width: 16 }}>#{i + 1}</span>
               <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{name}</span>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)' }}>
-              <span>
-                {stats.count} session{stats.count !== 1 ? 's' : ''}
-              </span>
+              <span>{stats.count} session{stats.count !== 1 ? 's' : ''}</span>
               <span style={{ color: '#10b981', fontWeight: 600 }}>{fmtKSH(stats.revenue)}</span>
             </div>
           </div>
         ))
-      )}
+      }
     </div>
   );
 }
 
-// Daily summary (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Summary (Analytics tab)
+// ─────────────────────────────────────────────────────────────────────────────
 function DailySummary({ logs }: { logs: GameLog[] }) {
   const [date, setDate] = useState(todayStr());
-  const dl = useMemo(() => logs.filter((l) => l.date === date), [logs, date]);
-
-  const full = dl.filter((l) => l.status === 'FULL GAME').length;
-  const partial = dl.filter((l) => l.status === 'PARTIAL').length;
-  const errors = dl.filter((l) => l.status === 'ERROR').length;
+  const dl = useMemo(() => logs.filter(l => l.date === date), [logs, date]);
+  const full = dl.filter(l => l.status === 'FULL GAME').length;
+  const partial = dl.filter(l => l.status === 'PARTIAL').length;
+  const errors = dl.filter(l => l.status === 'ERROR').length;
   const revenue = dl.reduce((s, l) => s + l.revenue_ksh, 0);
   const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0);
   const avg = dl.length ? (playtime / dl.length).toFixed(1) : '—';
-
   return (
     <div style={cardStyle}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
-      >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <h2 style={sectionTitle}>Daily Summary</h2>
-        <input
-          type="date"
-          value={date}
-          max={todayStr()}
-          onChange={(e) => setDate(e.target.value)}
-          style={{
-            background: 'var(--surface2)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            padding: '6px 12px',
-            color: 'var(--text)',
-            fontSize: 13,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
-        />
+        <input type="date" value={date} max={todayStr()} onChange={e => setDate(e.target.value)}
+          style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--text)', fontSize: 13, cursor: 'pointer', outline: 'none' }} />
       </div>
-
-      {dl.length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions found for {date}</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem' }}>
+      {dl.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions found for {date}</p> : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '1rem' }}>
           {[
             { label: 'Sessions', value: String(dl.length) },
             { label: 'Revenue', value: fmtKSH(revenue) },
@@ -775,29 +642,10 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
             { label: 'Errors', value: String(errors) },
             { label: 'Total Time', value: `${playtime.toFixed(0)} min` },
             { label: 'Avg Session', value: `${avg} min` },
-          ].map((c) => (
-            <div
-              key={c.label}
-              style={{
-                background: 'var(--surface2)',
-                borderRadius: 10,
-                padding: '12px 14px',
-              }}
-            >
-              <p
-                style={{
-                  fontSize: 11,
-                  color: 'var(--muted)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  marginBottom: 6,
-                }}
-              >
-                {c.label}
-              </p>
-              <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                {c.value}
-              </p>
+          ].map(c => (
+            <div key={c.label} style={{ background: 'var(--surface2)', borderRadius: 10, padding: '12px 14px' }}>
+              <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{c.label}</p>
+              <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{c.value}</p>
             </div>
           ))}
         </div>
@@ -806,10 +654,11 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Recent sessions table (reused)
+// ─────────────────────────────────────────────────────────────────────────────
+// Recent Sessions Table
+// ─────────────────────────────────────────────────────────────────────────────
 function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
   const recent = logs.slice(0, 15);
-
   return (
     <div style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}>
       <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
@@ -819,22 +668,8 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--surface2)' }}>
-              {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: '10px 16px',
-                    textAlign: 'left',
-                    fontSize: 11,
-                    color: 'var(--muted)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.07em',
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
+              {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map(h => (
+                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -842,53 +677,20 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
             {recent.map((log, i) => {
               const t = parseISO(log.start_time);
               return (
-                <tr
-                  key={log.id}
-                  style={{
-                    borderBottom: '1px solid var(--border)',
-                    background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
-                    transition: 'background 0.1s',
-                  }}
-                >
+                <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', transition: 'background 0.1s' }}>
                   <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
                   <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text)' }}>{log.computer_id}</td>
-                  <td
-                    style={{
-                      ...tdStyle,
-                      maxWidth: 180,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {log.game_name}
-                  </td>
+                  <td style={{ ...tdStyle, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.game_name}</td>
                   <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
                   <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
                   <td style={tdStyle}>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 20,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: statusBg(log.status),
-                        color: statusColor(log.status),
-                        letterSpacing: '0.04em',
-                      }}
-                    >
-                      {log.status}
-                    </span>
+                    <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status), letterSpacing: '0.04em' }}>{log.status}</span>
                   </td>
                 </tr>
               );
             })}
             {recent.length === 0 && (
-              <tr>
-                <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                  Waiting for sessions…
-                </td>
-              </tr>
+              <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Waiting for sessions…</td></tr>
             )}
           </tbody>
         </table>
@@ -897,43 +699,44 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Activity view (shows all recent activity in a timeline)
-function ActivityView({ logs }: { logs: GameLog[] }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVITY VIEW — with filter tabs, date picker, daily totals banner
+// ─────────────────────────────────────────────────────────────────────────────
+type ActivityFilter = 'today' | 'week' | 'month' | 'custom';
+
+function DayTotalBanner({ logs, date }: { logs: GameLog[]; date: string }) {
+  const dl = logs.filter(l => l.date === date);
+  if (dl.length === 0) return null;
+  const revenue = dl.reduce((s, l) => s + l.revenue_ksh, 0);
+  const full = dl.filter(l => l.status === 'FULL GAME').length;
+  const partial = dl.filter(l => l.status === 'PARTIAL').length;
+  const errors = dl.filter(l => l.status === 'ERROR').length;
+  const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0);
   return (
-    <div style={{ ...cardStyle, padding: 0 }}>
-      <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
-        <h2 style={sectionTitle}>Recent Activity</h2>
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(99,102,241,0.05) 100%)',
+      border: '1px solid rgba(99,102,241,0.25)',
+      borderRadius: 12, padding: '14px 18px', marginBottom: 12,
+      display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Calendar size={15} color="var(--accent)" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+          {date === todayStr() ? 'Today' : format(parseISO(date), 'EEEE, MMM d')}
+        </span>
       </div>
-      <div style={{ padding: '16px 24px', maxHeight: 500, overflowY: 'auto' }}>
-        {logs.slice(0, 50).map((log) => (
-          <div
-            key={log.id}
-            style={{
-              display: 'flex',
-              gap: 16,
-              padding: '12px 0',
-              borderBottom: '1px solid var(--border)',
-              fontSize: 13,
-            }}
-          >
-            <div style={{ minWidth: 80, color: 'var(--muted)' }}>{format(parseISO(log.start_time), 'HH:mm')}</div>
-            <div style={{ minWidth: 100, fontWeight: 600 }}>{log.computer_id}</div>
-            <div style={{ flex: 1 }}>{log.game_name}</div>
-            <div style={{ minWidth: 80, color: '#10b981' }}>{fmtKSH(log.revenue_ksh)}</div>
-            <div>
-              <span
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: 12,
-                  background: statusBg(log.status),
-                  color: statusColor(log.status),
-                  fontSize: 10,
-                  fontWeight: 600,
-                }}
-              >
-                {log.status}
-              </span>
-            </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginLeft: 'auto' }}>
+        {[
+          { label: 'Sessions', value: String(dl.length), color: 'var(--text)' },
+          { label: 'Revenue', value: fmtKSH(revenue), color: '#10b981' },
+          { label: 'Full', value: String(full), color: '#10b981' },
+          { label: 'Partial', value: String(partial), color: '#f59e0b' },
+          { label: 'Errors', value: String(errors), color: '#ef4444' },
+          { label: 'Playtime', value: `${playtime.toFixed(0)}m`, color: 'var(--muted)' },
+        ].map(s => (
+          <div key={s.label} style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{s.label}</p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: 'var(--font-display)' }}>{s.value}</p>
           </div>
         ))}
       </div>
@@ -941,270 +744,666 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
   );
 }
 
-// Settings view
-function SettingsView({
-  config,
-  updateConfig,
+function ActivityView({ logs }: { logs: GameLog[] }) {
+  const [filter, setFilter] = useState<ActivityFilter>('today');
+  const [customDate, setCustomDate] = useState(todayStr());
+  const [machineFilter, setMachineFilter] = useState<string>('all');
+
+  const machines = useMemo(() => {
+    const ids = [...new Set(logs.map(l => l.computer_id))];
+    return ids;
+  }, [logs]);
+
+  // Compute date range based on filter
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const now = new Date();
+    if (filter === 'today') return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
+    if (filter === 'week') return { rangeStart: startOfWeek(now, { weekStartsOn: 1 }), rangeEnd: endOfWeek(now, { weekStartsOn: 1 }) };
+    if (filter === 'month') return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) };
+    // custom — single day
+    const d = parseISO(customDate);
+    return { rangeStart: startOfDay(d), rangeEnd: endOfDay(d) };
+  }, [filter, customDate]);
+
+  const filtered = useMemo(() => {
+    return logs.filter(l => {
+      const d = parseISO(l.start_time);
+      const inRange = d >= rangeStart && d <= rangeEnd;
+      const inMachine = machineFilter === 'all' || l.computer_id === machineFilter;
+      return inRange && inMachine;
+    });
+  }, [logs, rangeStart, rangeEnd, machineFilter]);
+
+  // Group by date
+  const grouped = useMemo(() => {
+    const map = new Map<string, GameLog[]>();
+    filtered.forEach(l => {
+      const arr = map.get(l.date) ?? [];
+      arr.push(l);
+      map.set(l.date, arr);
+    });
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered]);
+
+  const filterBtnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+    fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+    background: active ? 'var(--accent)' : 'var(--surface2)',
+    color: active ? '#fff' : 'var(--muted)',
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* Filter bar */}
+      <div style={{ ...cardStyle, padding: '14px 20px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+            <Filter size={14} color="var(--muted)" />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filter:</span>
+          </div>
+          {(['today', 'week', 'month', 'custom'] as ActivityFilter[]).map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={filterBtnStyle(filter === f)}>
+              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : f === 'month' ? 'This Month' : 'Pick Date'}
+            </button>
+          ))}
+          {filter === 'custom' && (
+            <input type="date" value={customDate} max={todayStr()} onChange={e => setCustomDate(e.target.value)}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--text)', fontSize: 13, cursor: 'pointer', outline: 'none' }} />
+          )}
+          {machines.length > 1 && (
+            <select value={machineFilter} onChange={e => setMachineFilter(e.target.value)}
+              style={{ ...inputStyle, width: 'auto', padding: '6px 12px', marginLeft: 'auto', cursor: 'pointer' }}>
+              <option value="all">All Machines</option>
+              {machines.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
+      {grouped.length === 0 ? (
+        <div style={cardStyle}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions found for this period.</p></div>
+      ) : (
+        grouped.map(([date, dayLogs]) => (
+          <div key={date}>
+            <DayTotalBanner logs={logs} date={date} />
+            <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface2)' }}>
+                      {['Time', 'Machine', 'Game', 'Duration', 'Revenue', 'Status'].map(h => (
+                        <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dayLogs.map((log, i) => {
+                      const t = parseISO(log.start_time);
+                      return (
+                        <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                          <td style={tdStyle}>{isValid(t) ? format(t, 'HH:mm:ss') : '—'}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text)' }}>{log.computer_id}</td>
+                          <td style={{ ...tdStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.game_name}</td>
+                          <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
+                          <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
+                          <td style={tdStyle}>
+                            <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME INTELLIGENCE VIEW (replaces Resources)
+// ─────────────────────────────────────────────────────────────────────────────
+function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
+  const [sortBy, setSortBy] = useState<'revenue' | 'sessions' | 'avg_duration'>('revenue');
+  const [period, setPeriod] = useState<7 | 30 | 90 | 999>(30);
+
+  const filtered = useMemo(() => {
+    if (period === 999) return logs;
+    const cutoff = startOfDay(subDays(new Date(), period));
+    return logs.filter(l => parseISO(l.start_time) >= cutoff);
+  }, [logs, period]);
+
+  const gameStats = useMemo(() => {
+    const map = new Map<string, { sessions: number; revenue: number; full: number; partial: number; errors: number; total_minutes: number }>();
+    filtered.forEach(l => {
+      const p = map.get(l.game_name) ?? { sessions: 0, revenue: 0, full: 0, partial: 0, errors: 0, total_minutes: 0 };
+      map.set(l.game_name, {
+        sessions: p.sessions + 1,
+        revenue: p.revenue + l.revenue_ksh,
+        full: p.full + (l.status === 'FULL GAME' ? 1 : 0),
+        partial: p.partial + (l.status === 'PARTIAL' ? 1 : 0),
+        errors: p.errors + (l.status === 'ERROR' ? 1 : 0),
+        total_minutes: p.total_minutes + l.duration_minutes,
+      });
+    });
+    return [...map.entries()].map(([name, s]) => ({
+      name, ...s,
+      avg_duration: s.sessions > 0 ? s.total_minutes / s.sessions : 0,
+      completion_rate: s.sessions > 0 ? Math.round((s.full / s.sessions) * 100) : 0,
+    })).sort((a, b) => b[sortBy] - a[sortBy]);
+  }, [filtered, sortBy]);
+
+  const totalRevenue = gameStats.reduce((s, g) => s + g.revenue, 0);
+
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+    background: active ? 'var(--accent)' : 'var(--surface2)', color: active ? '#fff' : 'var(--muted)', transition: 'all 0.15s',
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+        {[
+          { label: 'Unique Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
+          { label: 'Total Revenue', value: fmtKSH(totalRevenue), icon: <TrendingUp size={18} color="#10b981" />, accent: '#10b981' },
+          { label: 'Total Sessions', value: String(filtered.length), icon: <Award size={18} color="#3b82f6" />, accent: '#3b82f6' },
+          { label: 'Total Playtime', value: `${(filtered.reduce((s, l) => s + l.duration_minutes, 0) / 60).toFixed(1)}h`, icon: <Clock size={18} color="#f59e0b" />, accent: '#f59e0b' },
+        ].map(c => (
+          <div key={c.label} style={{ ...cardStyle, borderTop: `3px solid ${c.accent}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>{c.icon}</div>
+            <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>{c.label}</p>
+            <p style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={sectionTitle}>Game Leaderboard</h2>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>Sort:</span>
+            <button onClick={() => setSortBy('revenue')} style={btnStyle(sortBy === 'revenue')}>Revenue</button>
+            <button onClick={() => setSortBy('sessions')} style={btnStyle(sortBy === 'sessions')}>Sessions</button>
+            <button onClick={() => setSortBy('avg_duration')} style={btnStyle(sortBy === 'avg_duration')}>Avg Duration</button>
+            <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center', marginLeft: 8 }}>Period:</span>
+            {([7, 30, 90, 999] as const).map(p => (
+              <button key={p} onClick={() => setPeriod(p)} style={btnStyle(period === p)}>{p === 999 ? 'All' : `${p}d`}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--surface2)' }}>
+                {['#', 'Game', 'Sessions', 'Revenue', 'Full %', 'Avg Duration', 'Rev/Session'].map(h => (
+                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gameStats.length === 0 ? (
+                <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No data for this period.</td></tr>
+              ) : gameStats.map((g, i) => {
+                const revenueShare = totalRevenue > 0 ? (g.revenue / totalRevenue) * 100 : 0;
+                return (
+                  <tr key={g.name} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: i < 3 ? 'var(--accent)' : 'var(--muted)' }}>
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                    </td>
+                    <td style={{ ...tdStyle, color: 'var(--text)', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div>{g.name}</div>
+                      <div style={{ height: 3, background: 'var(--surface2)', borderRadius: 2, marginTop: 4, maxWidth: 120 }}>
+                        <div style={{ height: '100%', width: `${revenueShare}%`, background: 'var(--accent)', borderRadius: 2 }} />
+                      </div>
+                    </td>
+                    <td style={tdStyle}>{g.sessions}</td>
+                    <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(g.revenue)}</td>
+                    <td style={tdStyle}>
+                      <span style={{ color: g.completion_rate >= 70 ? '#10b981' : g.completion_rate >= 40 ? '#f59e0b' : '#ef4444' }}>
+                        {g.completion_rate}%
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{g.avg_duration.toFixed(1)} min</td>
+                    <td style={{ ...tdStyle, color: 'var(--text)' }}>{fmtKSH(g.sessions > 0 ? g.revenue / g.sessions : 0)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Machine Pricing Overrides
+// ─────────────────────────────────────────────────────────────────────────────
+function MachinePricingOverrides({
+  machines,
+  globalConfig,
 }: {
+  machines: MachineWithOnline[];
+  globalConfig: PricingConfig | null;
+}) {
+  // Local state: per-machine form values keyed by computer_id
+  const [forms, setForms] = useState<Record<string, {
+    label: string;
+    custom_rate_per_full_game: string;
+    custom_rate_per_minute: string;
+  }>>({});
+  const [saving, setSaving] = useState<Record<string, 'idle' | 'saving' | 'ok' | 'error'>>({});
+
+  // Initialise form state whenever machines list changes
+  useEffect(() => {
+    const init: typeof forms = {};
+    machines.forEach(m => {
+      init[m.computer_id] = {
+        label: m.label && m.label !== m.computer_id ? m.label : '',
+        custom_rate_per_full_game: m.custom_rate_per_full_game != null ? String(m.custom_rate_per_full_game) : '',
+        custom_rate_per_minute: m.custom_rate_per_minute != null ? String(m.custom_rate_per_minute) : '',
+      };
+    });
+    setForms(init);
+  }, [machines]);
+
+  const saveMachine = async (computerId: string) => {
+    const f = forms[computerId];
+    if (!f) return;
+    setSaving(p => ({ ...p, [computerId]: 'saving' }));
+    try {
+      const payload = {
+        computer_id: computerId,
+        label: f.label.trim() || computerId,
+        custom_rate_per_full_game: f.custom_rate_per_full_game === '' ? null : Number(f.custom_rate_per_full_game),
+        custom_rate_per_minute: f.custom_rate_per_minute === '' ? null : Number(f.custom_rate_per_minute),
+      };
+      const { error } = await supabase
+        .from('machine_pricing')
+        .upsert(payload, { onConflict: 'computer_id' });
+      if (error) throw error;
+      setSaving(p => ({ ...p, [computerId]: 'ok' }));
+      setTimeout(() => setSaving(p => ({ ...p, [computerId]: 'idle' })), 2500);
+    } catch (err) {
+      console.error('Machine pricing save error:', err);
+      setSaving(p => ({ ...p, [computerId]: 'error' }));
+      setTimeout(() => setSaving(p => ({ ...p, [computerId]: 'idle' })), 3000);
+    }
+  };
+
+  if (machines.length === 0) return null;
+
+  const globalFullRate = globalConfig?.rate_per_full_game ?? 200;
+  const globalMinRate = globalConfig?.rate_per_minute ?? 30;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 28, marginBottom: 20 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6, fontFamily: 'var(--font-display)' }}>
+          Machine-Specific Pricing
+        </h3>
+        <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
+          Override the global rate for individual machines. Leave a field blank to inherit the global rate.
+          The VR script picks up changes on its next 60-second heartbeat.
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {machines.map(m => {
+          const f = forms[m.computer_id] ?? { label: '', custom_rate_per_full_game: '', custom_rate_per_minute: '' };
+          const status = saving[m.computer_id] ?? 'idle';
+          const effectiveFull = f.custom_rate_per_full_game !== '' ? Number(f.custom_rate_per_full_game) : globalFullRate;
+          const effectiveMin = f.custom_rate_per_minute !== '' ? Number(f.custom_rate_per_minute) : globalMinRate;
+
+          return (
+            <div key={m.computer_id} style={{
+              background: 'var(--surface2)', borderRadius: 12,
+              border: '1px solid var(--border)', padding: '16px 20px',
+            }}>
+              {/* Machine header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{
+                  width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+                  background: m.is_online ? '#10b981' : '#ef4444',
+                  boxShadow: m.is_online ? '0 0 6px #10b981' : 'none',
+                }} />
+                <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 14, fontFamily: 'var(--font-display)' }}>
+                  {m.computer_id}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 2 }}>
+                  {m.is_online ? '· Online' : '· Offline'}
+                </span>
+              </div>
+
+              {/* Form grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
+                {/* Display label */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={m.computer_id}
+                    value={f.label}
+                    onChange={e => setForms(p => ({ ...p, [m.computer_id]: { ...f, label: e.target.value } }))}
+                    style={{ ...inputStyle, fontSize: 13 }}
+                  />
+                </div>
+
+                {/* Custom full game rate */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Full Game Rate (KSH)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder={`Global: ${globalFullRate}`}
+                    value={f.custom_rate_per_full_game}
+                    onChange={e => setForms(p => ({ ...p, [m.computer_id]: { ...f, custom_rate_per_full_game: e.target.value } }))}
+                    style={{ ...inputStyle, fontSize: 13 }}
+                    min="0" step="10"
+                  />
+                </div>
+
+                {/* Custom per-minute rate */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Per Minute Rate (KSH)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder={`Global: ${globalMinRate}`}
+                    value={f.custom_rate_per_minute}
+                    onChange={e => setForms(p => ({ ...p, [m.computer_id]: { ...f, custom_rate_per_minute: e.target.value } }))}
+                    style={{ ...inputStyle, fontSize: 13 }}
+                    min="0" step="5"
+                  />
+                </div>
+              </div>
+
+              {/* Effective rate preview + save */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, flexWrap: 'wrap', gap: 10 }}>
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Effective: <span style={{ color: '#10b981', fontWeight: 600 }}>KSH {effectiveFull} / full game</span>
+                  {' · '}
+                  <span style={{ color: '#f59e0b', fontWeight: 600 }}>KSH {effectiveMin} / min</span>
+                  {f.custom_rate_per_full_game === '' && f.custom_rate_per_minute === ''
+                    ? <span style={{ color: 'var(--muted)', marginLeft: 6 }}>(using global)</span>
+                    : <span style={{ color: 'var(--accent)', marginLeft: 6 }}>(overridden)</span>
+                  }
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {status === 'ok' && <span style={{ fontSize: 12, color: '#10b981' }}>✓ Saved</span>}
+                  {status === 'error' && <span style={{ fontSize: 12, color: '#ef4444' }}>✗ Failed</span>}
+                  <button
+                    onClick={() => saveMachine(m.computer_id)}
+                    disabled={status === 'saving'}
+                    style={{
+                      padding: '7px 18px', borderRadius: 8, border: 'none', cursor: status === 'saving' ? 'not-allowed' : 'pointer',
+                      background: status === 'saving' ? 'var(--surface)' : 'var(--accent)',
+                      color: status === 'saving' ? 'var(--muted)' : '#fff',
+                      fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
+                    }}
+                  >
+                    {status === 'saving' ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings View
+// ─────────────────────────────────────────────────────────────────────────────
+function SettingsView({ config, updateConfig, machines }: {
   config: PricingConfig | null;
   updateConfig: (updates: Partial<PricingConfig>) => Promise<any>;
+  machines: MachineWithOnline[];
 }) {
-  // Initialize with fallbacks using ?? (nullish coalescing) – never undefined/null
   const [form, setForm] = useState({
     use_per_minute: config?.use_per_minute ?? false,
     rate_per_full_game: config?.rate_per_full_game ?? 200,
     rate_per_minute: config?.rate_per_minute ?? 30,
     daily_target_ksh: config?.daily_target_ksh ?? 2000,
   });
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
-  // Sync when config loads (again using ?? to avoid null/undefined)
   useEffect(() => {
-    if (config) {
-      setForm({
-        use_per_minute: config.use_per_minute ?? false,
-        rate_per_full_game: config.rate_per_full_game ?? 200,
-        rate_per_minute: config.rate_per_minute ?? 30,
-        daily_target_ksh: config.daily_target_ksh ?? 2000,
-      });
-    }
+    if (config) setForm({
+      use_per_minute: config.use_per_minute ?? false,
+      rate_per_full_game: config.rate_per_full_game ?? 200,
+      rate_per_minute: config.rate_per_minute ?? 30,
+      daily_target_ksh: config.daily_target_ksh ?? 2000,
+    });
   }, [config]);
 
-  // Safe number updater – prevents NaN
   const handleNumberChange = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    if (raw === '') return; // ignore empty to keep current value
+    if (raw === '') return;
     const num = parseFloat(raw);
-    if (!isNaN(num)) {
-      setForm(prev => ({ ...prev, [field]: num }));
-    }
+    if (!isNaN(num)) setForm(prev => ({ ...prev, [field]: num }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateConfig(form);
-    alert('Pricing updated successfully!');
+    setSaving(true);
+    setSaveStatus('idle');
+    const err = await updateConfig(form);
+    setSaving(false);
+    setSaveStatus(err ? 'error' : 'ok');
+    setTimeout(() => setSaveStatus('idle'), 3000);
   };
 
   if (!config) return <div style={cardStyle}>Loading settings...</div>;
 
   return (
-    <div style={cardStyle}>
-      <h2 style={{ ...sectionTitle, marginBottom: 24 }}>Pricing Configuration</h2>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 400 }}>
-        {/* Pricing Model Radios */}
-        <div>
-          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Pricing Model</label>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-              <input
-                type="radio"
-                checked={!form.use_per_minute}
-                onChange={() => setForm(prev => ({ ...prev, use_per_minute: false }))}
-              />
-              Per Full Game
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-              <input
-                type="radio"
-                checked={form.use_per_minute}
-                onChange={() => setForm(prev => ({ ...prev, use_per_minute: true }))}
-              />
-              Per Minute
-            </label>
-          </div>
-        </div>
-
-        {/* Dynamic Rate Field */}
-        {!form.use_per_minute ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Global pricing card */}
+      <div style={cardStyle}>
+        <h2 style={{ ...sectionTitle, marginBottom: 6 }}>Global Pricing</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
+          Default rates applied to all machines. Individual machines can override these below.
+          Changes sync to VR machines within 60 seconds.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 420 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Rate per Full Game (KSH)</label>
-            <input
-              type="number"
-              value={form.rate_per_full_game}
-              onChange={handleNumberChange('rate_per_full_game')}
-              style={inputStyle}
-              step="10"
-              min="0"
-            />
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Pricing Model</label>
+            <div style={{ display: 'flex', gap: 0, background: 'var(--surface2)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
+              {[{ label: 'Per Full Game', value: false }, { label: 'Per Minute', value: true }].map(opt => (
+                <button key={String(opt.value)} type="button"
+                  onClick={() => setForm(p => ({ ...p, use_per_minute: opt.value }))}
+                  style={{
+                    padding: '7px 18px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+                    background: form.use_per_minute === opt.value ? 'var(--accent)' : 'transparent',
+                    color: form.use_per_minute === opt.value ? '#fff' : 'var(--muted)',
+                  }}>{opt.label}</button>
+              ))}
+            </div>
           </div>
-        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                Rate / Full Game (KSH)
+              </label>
+              <input type="number" value={form.rate_per_full_game} onChange={handleNumberChange('rate_per_full_game')} style={inputStyle} step="10" min="0" />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                Rate / Minute (KSH)
+              </label>
+              <input type="number" value={form.rate_per_minute} onChange={handleNumberChange('rate_per_minute')} style={inputStyle} step="1" min="0" />
+            </div>
+          </div>
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Rate per Minute (KSH)</label>
-            <input
-              type="number"
-              value={form.rate_per_minute}
-              onChange={handleNumberChange('rate_per_minute')}
-              style={inputStyle}
-              step="1"
-              min="0"
-            />
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              Daily Revenue Target (KSH)
+            </label>
+            <input type="number" value={form.daily_target_ksh} onChange={handleNumberChange('daily_target_ksh')} style={inputStyle} step="100" min="0" />
           </div>
-        )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button type="submit" disabled={saving} style={{
+              background: saving ? 'var(--surface2)' : 'var(--accent)',
+              color: saving ? 'var(--muted)' : '#fff',
+              border: 'none', padding: '11px 24px', borderRadius: 8,
+              fontSize: 14, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+            }}>
+              {saving ? 'Saving…' : 'Save Global Pricing'}
+            </button>
+            {saveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ Saved</span>}
+            {saveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed — check console</span>}
+          </div>
+        </form>
 
-        {/* Daily Target */}
-        <div>
-          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Daily Revenue Target (KSH)</label>
-          <input
-            type="number"
-            value={form.daily_target_ksh}
-            onChange={handleNumberChange('daily_target_ksh')}
-            style={inputStyle}
-            step="100"
-            min="0"
-          />
-        </div>
-
-        <button
-          type="submit"
-          style={{
-            background: 'var(--accent)',
-            color: '#fff',
-            border: 'none',
-            padding: '12px 20px',
-            borderRadius: 8,
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            marginTop: 12,
-          }}
-        >
-          Save Changes
-        </button>
-      </form>
+        {/* Machine overrides section — rendered inside the same card below the form */}
+        <MachinePricingOverrides machines={machines} globalConfig={config} />
+      </div>
     </div>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface2)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  padding: '10px 12px',
-  color: 'var(--text)',
-  fontSize: 13,
-  width: '100%',
-  outline: 'none',
-};
 
-// Resources view (placeholder)
-function ResourcesView() {
-  return (
-    <div style={cardStyle}>
-      <h2 style={sectionTitle}>Resources</h2>
-      <p style={{ color: 'var(--muted)', marginTop: 16 }}>Manuals, guides, and support links will appear here.</p>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared Styles
-// ─────────────────────────────────────────────────────────────────────────────
-const cardStyle: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 14,
-  padding: '20px 24px',
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 700,
-  color: 'var(--text)',
-  fontFamily: 'var(--font-display)',
-  margin: 0,
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: '12px 16px',
-  color: 'var(--muted)',
-  whiteSpace: 'nowrap',
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { logs, loading } = useGameLogs(500);
-  const machines = useMachineStatus();
+  const { logs, loading } = useGameLogs(1000);
+  const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
   const { config, loading: configLoading, updateConfig } = usePricingConfig();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(new Date());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  if (loading || configLoading) return <LoadingScreen />;
+  // Auto-collapse sidebar on small screens
+  useEffect(() => {
+    const check = () => setSidebarCollapsed(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // ── MACHINE DELETE FUNCTIONS ─────────────────────────────────────────────────
+
+  const deleteMachine = async (computerId: string) => {
+    try {
+      // Optimistically remove from UI immediately
+      setMachines(prev => prev.filter(m => m.computer_id !== computerId));
+
+      const { error } = await supabase
+        .from('machine_status')
+        .delete()
+        .eq('computer_id', computerId);
+
+      if (error) throw error;
+
+      // NOTE: We only delete from machine_status, NOT game_logs —
+      // that would erase historical KSH accounting data for this machine.
+
+    } catch (err) {
+      console.error('Error deleting machine:', err);
+      alert('Failed to delete machine. Check console for details.');
+      // Roll back the optimistic update by re-fetching
+      refetchMachines();
+    }
+  };
+
+  const clearAllMachines = async () => {
+    try {
+      // Snapshot IDs before clearing UI
+      const ids = machines.map(m => m.computer_id);
+
+      // Optimistically clear UI immediately
+      setMachines([]);
+
+      if (ids.length === 0) return;
+
+      const { error } = await supabase
+        .from('machine_status')
+        .delete()
+        .in('computer_id', ids);
+
+      if (error) throw error;
+
+    } catch (err) {
+      console.error('Error clearing machines:', err);
+      alert('Failed to clear machines. Check console for details.');
+      // Roll back by re-fetching
+      refetchMachines();
+    }
+  };
 
   const todayRevenue = useMemo(() => {
     const today = todayStr();
-    return logs.filter((l) => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
+    return logs.filter(l => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
   }, [logs]);
+
+  if (loading || configLoading) return <LoadingScreen />;
 
   return (
     <>
-
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
         :root {
-          --bg:           #0d0f14;
-          --surface:      #151820;
-          --surface2:     #1c1f29;
-          --border:       rgba(255,255,255,0.07);
-          --text:         #f0f2f8;
-          --muted:        #6b7280;
-          --accent:       #6366f1;
-          --font-display: 'Syne', sans-serif;
-          --font-body:    'DM Sans', sans-serif;
+          --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
+          --border: rgba(255,255,255,0.07); --text: #f0f2f8;
+          --muted: #6b7280; --accent: #6366f1;
+          --font-display: 'Syne', sans-serif; --font-body: 'DM Sans', sans-serif;
         }
-
-        body {
-          background:  var(--bg);
-          color:       var(--text);
-          font-family: var(--font-body);
-          min-height:  100vh;
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 0.3; transform: scale(0.8); }
-          50%       { opacity: 1;   transform: scale(1.2); }
-        }
-
-        @keyframes glow {
-          0%, 100% { box-shadow: 0 0 6px #10b981; }
-          50%       { box-shadow: 0 0 14px #10b981, 0 0 4px #10b981; }
-        }
-
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        input[type="date"]::-webkit-calendar-picker-indicator {
-          filter: invert(0.6);
-          cursor: pointer;
-        }
-
-        ::-webkit-scrollbar       { width: 6px; height: 6px; }
+        body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; }
+        @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
+        @keyframes glow { 0%,100%{box-shadow:0 0 6px #10b981} 50%{box-shadow:0 0 14px #10b981,0 0 4px #10b981} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
         tr:hover td { background: rgba(255,255,255,0.02) !important; }
+        select option { background: #1c1f29; color: #f0f2f8; }
+        @media (max-width: 767px) {
+          .mobile-menu-btn { display: flex !important; }
+          .mobile-overlay { display: block !important; }
+        }
       `}</style>
 
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
       <div style={{ display: 'flex', minHeight: '100vh' }}>
-        <Sidebar active={activeTab} onNavigate={setActiveTab} />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <Header now={now} />
-          <main style={{ padding: '24px', overflowY: 'auto' }}>
+        <Sidebar
+          active={activeTab}
+          onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(p => !p)}
+        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} />
+          <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
             {activeTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <MachineStatusCards machines={machines} />
+                <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
                 <ProgressCard todayRevenue={todayRevenue} dailyTarget={config?.daily_target_ksh || 2000} />
                 <StatsCards logs={logs} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
                   <TodayPieChart logs={logs} />
                   <TopGames logs={logs} />
                 </div>
@@ -1219,10 +1418,8 @@ export default function Dashboard() {
               </div>
             )}
             {activeTab === 'activity' && <ActivityView logs={logs} />}
-            {activeTab === 'resources' && <ResourcesView />}
-            {activeTab === 'settings' && (
-              <SettingsView config={config} updateConfig={updateConfig} />
-            )}
+            {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
+            {activeTab === 'settings' && <SettingsView config={config} updateConfig={updateConfig} machines={machines} />}
           </main>
         </div>
       </div>

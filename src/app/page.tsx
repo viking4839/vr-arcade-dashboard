@@ -1584,7 +1584,6 @@ export default function Dashboard() {
         tr:hover td { background: rgba(255,255,255,0.02) !important; }
         select option { background: #1c1f29; color: #f0f2f8; }
         @media (max-width: 767px) {
-          .mobile-menu-btn { display: flex !important; }
           .mobile-overlay { display: block !important; }
         }
       `}</style>

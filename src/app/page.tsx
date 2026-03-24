@@ -60,7 +60,14 @@ interface PricingConfig {
   id: number; use_per_minute: boolean; rate_per_full_game: number;
   rate_per_minute: number; daily_target_ksh: number; updated_at: string;
 }
-
+interface ArcadeSettings {
+  id: number;
+  price_per_full_game: number;
+  daily_target_ksh: number;
+  full_game_min_minutes: number;
+  error_max_minutes: number;
+  updated_at: string;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,7 +105,6 @@ function useGameLogs(limit = 1000) {
   }, [limit]);
   return { logs, setLogs, loading };
 }
-
 function useMachineStatus() {
   const [machines, setMachines] = useState<MachineStatus[]>([]);
   const [pricingMap, setPricingMap] = useState<Record<string, MachinePricing>>({});
@@ -126,6 +132,7 @@ function useMachineStatus() {
   }, [fetchMachines]);
 
   const now = Date.now();
+
   return {
     machines: machines.map(m => ({
       ...m,
@@ -139,22 +146,36 @@ function useMachineStatus() {
   };
 }
 
-function usePricingConfig() {
-  const [config, setConfig] = useState<PricingConfig | null>(null);
+
+function useArcadeSettings() {
+  const [settings, setSettings] = useState<ArcadeSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const fetchConfig = useCallback(async () => {
-    const { data, error } = await supabase.from('pricing_config').select('*').eq('id', 1).single();
-    if (!error && data) setConfig(data as PricingConfig);
+
+  const fetchSettings = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('arcade_settings')
+      .select('*')
+      .eq('id', 1)
+      .single();
+    if (!error && data) setSettings(data as ArcadeSettings);
     setLoading(false);
   }, []);
-  useEffect(() => { fetchConfig(); }, [fetchConfig]);
-  const updateConfig = async (updates: Partial<PricingConfig>) => {
-    if (!config) return;
-    const { error } = await supabase.from('pricing_config').update(updates).eq('id', 1);
-    if (!error) setConfig({ ...config, ...updates });
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const updateSettings = async (updates: Partial<ArcadeSettings>) => {
+    if (!settings) return;
+    const { error } = await supabase
+      .from('arcade_settings')
+      .update(updates)
+      .eq('id', 1);
+    if (!error) setSettings({ ...settings, ...updates });
     return error;
   };
-  return { config, loading, updateConfig };
+
+  return { settings, loading, updateSettings };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1348,114 +1369,136 @@ function MachinePricingOverrides({
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings View
 // ─────────────────────────────────────────────────────────────────────────────
-function SettingsView({ config, updateConfig, machines }: {
-  config: PricingConfig | null;
-  updateConfig: (updates: Partial<PricingConfig>) => Promise<any>;
-  machines: MachineWithOnline[];
+function SettingsView({
+  settings,
+  updateSettings,
+}: {
+  settings: ArcadeSettings | null;
+  updateSettings: (updates: Partial<ArcadeSettings>) => Promise<any>;
 }) {
   const [form, setForm] = useState({
-    use_per_minute: config?.use_per_minute ?? false,
-    rate_per_full_game: config?.rate_per_full_game ?? 200,
-    rate_per_minute: config?.rate_per_minute ?? 30,
-    daily_target_ksh: config?.daily_target_ksh ?? 2000,
+    price_per_full_game: 400,
+    daily_target_ksh: 4000,
+    full_game_min_minutes: 4,
+    error_max_minutes: 2,
   });
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
   useEffect(() => {
-    if (config) setForm({
-      use_per_minute: config.use_per_minute ?? false,
-      rate_per_full_game: config.rate_per_full_game ?? 200,
-      rate_per_minute: config.rate_per_minute ?? 30,
-      daily_target_ksh: config.daily_target_ksh ?? 2000,
-    });
-  }, [config]);
+    if (settings) {
+      setForm({
+        price_per_full_game: settings.price_per_full_game,
+        daily_target_ksh: settings.daily_target_ksh,
+        full_game_min_minutes: settings.full_game_min_minutes,
+        error_max_minutes: settings.error_max_minutes,
+      });
+    }
+  }, [settings]);
 
   const handleNumberChange = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    if (raw === '') return;
-    const num = parseFloat(raw);
-    if (!isNaN(num)) setForm(prev => ({ ...prev, [field]: num }));
+    const num = raw === '' ? 0 : parseFloat(raw);
+    setForm(prev => ({ ...prev, [field]: num }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setSaveStatus('idle');
-    const err = await updateConfig(form);
+    const err = await updateSettings(form);
     setSaving(false);
     setSaveStatus(err ? 'error' : 'ok');
     setTimeout(() => setSaveStatus('idle'), 3000);
   };
 
-  if (!config) return <div style={cardStyle}>Loading settings...</div>;
+  if (!settings) return <div style={cardStyle}>Loading settings…</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Global pricing card */}
-      <div style={cardStyle}>
-        <h2 style={{ ...sectionTitle, marginBottom: 6 }}>Global Pricing</h2>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
-          Default rates applied to all machines. Individual machines can override these below.
-          Changes sync to VR machines within 60 seconds.
-        </p>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 420 }}>
+    <div style={cardStyle}>
+      <h2 style={sectionTitle}>Arcade Configuration</h2>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>
+        These settings are saved to the cloud and applied to all VR machines.
+      </p>
+      <form onSubmit={handleSubmit} style={{ maxWidth: 400 }}>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+            Price per Full Game (KSH)
+          </label>
+          <input
+            type="number"
+            value={form.price_per_full_game}
+            onChange={handleNumberChange('price_per_full_game')}
+            style={inputStyle}
+            step="10"
+            min="0"
+          />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+            Daily Revenue Target (KSH)
+          </label>
+          <input
+            type="number"
+            value={form.daily_target_ksh}
+            onChange={handleNumberChange('daily_target_ksh')}
+            style={inputStyle}
+            step="100"
+            min="0"
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Pricing Model</label>
-            <div style={{ display: 'flex', gap: 0, background: 'var(--surface2)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
-              {[{ label: 'Per Full Game', value: false }, { label: 'Per Minute', value: true }].map(opt => (
-                <button key={String(opt.value)} type="button"
-                  onClick={() => setForm(p => ({ ...p, use_per_minute: opt.value }))}
-                  style={{
-                    padding: '7px 18px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                    fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
-                    background: form.use_per_minute === opt.value ? 'var(--accent)' : 'transparent',
-                    color: form.use_per_minute === opt.value ? '#fff' : 'var(--muted)',
-                  }}>{opt.label}</button>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-                Rate / Full Game (KSH)
-              </label>
-              <input type="number" value={form.rate_per_full_game} onChange={handleNumberChange('rate_per_full_game')} style={inputStyle} step="10" min="0" />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-                Rate / Minute (KSH)
-              </label>
-              <input type="number" value={form.rate_per_minute} onChange={handleNumberChange('rate_per_minute')} style={inputStyle} step="1" min="0" />
-            </div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              Full Game Min (mins)
+            </label>
+            <input
+              type="number"
+              value={form.full_game_min_minutes}
+              onChange={handleNumberChange('full_game_min_minutes')}
+              style={inputStyle}
+              step="1"
+              min="1"
+            />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-              Daily Revenue Target (KSH)
+              Error Max (mins)
             </label>
-            <input type="number" value={form.daily_target_ksh} onChange={handleNumberChange('daily_target_ksh')} style={inputStyle} step="100" min="0" />
+            <input
+              type="number"
+              value={form.error_max_minutes}
+              onChange={handleNumberChange('error_max_minutes')}
+              style={inputStyle}
+              step="1"
+              min="0"
+            />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <button type="submit" disabled={saving} style={{
-              background: saving ? 'var(--surface2)' : 'var(--accent)',
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button
+            type="submit"
+            disabled={saving}
+            style={{
+              background: saving ? 'var(--surface2)' : '#10b981',
               color: saving ? 'var(--muted)' : '#fff',
-              border: 'none', padding: '11px 24px', borderRadius: 8,
-              fontSize: 14, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-            }}>
-              {saving ? 'Saving…' : 'Save Global Pricing'}
-            </button>
-            {saveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ Saved</span>}
-            {saveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed — check console</span>}
-          </div>
-        </form>
-
-        {/* Machine overrides section — rendered inside the same card below the form */}
-        <MachinePricingOverrides machines={machines} globalConfig={config} />
-      </div>
+              border: 'none',
+              padding: '10px 24px',
+              borderRadius: 8,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: saving ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {saving ? 'Saving…' : 'Save Settings'}
+          </button>
+          {saveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ Saved</span>}
+          {saveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed</span>}
+        </div>
+      </form>
     </div>
   );
 }
-
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1464,7 +1507,7 @@ function SettingsView({ config, updateConfig, machines }: {
 export default function Dashboard() {
   const { logs, setLogs, loading } = useGameLogs(1000);
   const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
-  const { config, loading: configLoading, updateConfig } = usePricingConfig();
+ const { settings, loading: settingsLoading, updateSettings } = useArcadeSettings();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(new Date());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1561,8 +1604,7 @@ export default function Dashboard() {
     return logs.filter(l => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
   }, [logs]);
 
-  if (loading || configLoading) return <LoadingScreen />;
-
+ 
   return (
     <>
       <style>{`
@@ -1605,7 +1647,7 @@ export default function Dashboard() {
             {activeTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
-                <ProgressCard todayRevenue={todayRevenue} dailyTarget={config?.daily_target_ksh || 2000} />
+                <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
                 <StatsCards logs={logs} />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
                   <TodayPieChart logs={logs} />
@@ -1623,7 +1665,7 @@ export default function Dashboard() {
             )}
             {activeTab === 'activity' && <ActivityView logs={logs} />}
             {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-            {activeTab === 'settings' && <SettingsView config={config} updateConfig={updateConfig} machines={machines} />}
+            {activeTab === 'settings' && (<SettingsView settings={settings} updateSettings={updateSettings} />)}
           </main>
         </div>
       </div>

@@ -336,8 +336,15 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }: {
 function Header({ now, onMenuToggle }: { now: Date; onMenuToggle: () => void }) {
   return (
     <header style={{
-      background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-      padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      background: 'var(--surface)',
+      borderBottom: '1px solid var(--border)',
+      padding: '12px 20px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      position: 'sticky',
+      top: 0,
+      zIndex: 40,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={onMenuToggle} className="mobile-menu-btn" style={{

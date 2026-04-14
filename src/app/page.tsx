@@ -274,10 +274,16 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }: {
         background: 'var(--surface)',
         borderRight: '1px solid var(--border)',
         padding: collapsed ? '16px 8px' : '20px 10px',
-        display: 'flex', flexDirection: 'column', gap: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
         transition: 'width 0.2s ease, padding 0.2s ease',
-        flexShrink: 0, overflow: 'hidden',
-        position: 'relative', zIndex: 50,
+        flexShrink: 0,
+        position: 'sticky',      // ← new
+        top: 0,                  // ← new
+        height: '100vh',         // ← new
+        overflowY: 'auto',       // ← changed from 'hidden' to allow internal scroll if needed
+        zIndex: 50,
       }}>
         {/* Logo + toggle */}
         <div style={{

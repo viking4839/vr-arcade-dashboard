@@ -16,8 +16,10 @@ import {
   LayoutDashboard, BarChart3, Activity, Zap,
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
-  TrendingUp, Clock, Award, Gamepad2,
+  TrendingUp, Clock, Award, Gamepad2, LockKeyhole,
 } from 'lucide-react';
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase
@@ -38,7 +40,7 @@ interface GameLog {
   end_time: string;
   duration_minutes: number;
   revenue_ksh: number;
-  status: 'FULL GAME' | 'PARTIAL' | 'ERROR';
+  status: 'FULL GAME' | 'ERROR';
   date: string;
   created_at: string;
 }
@@ -66,6 +68,7 @@ interface ArcadeSettings {
   daily_target_ksh: number;
   full_game_min_minutes: number;
   error_max_minutes: number;
+  pin_code: string | null;
   updated_at: string;
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,11 +76,11 @@ interface ArcadeSettings {
 // ─────────────────────────────────────────────────────────────────────────────
 const fmtKSH = (n: number) =>
   `KSH ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 const statusColor = (s: string) =>
-  s === 'FULL GAME' ? '#10b981' : s === 'PARTIAL' ? '#f59e0b' : '#ef4444';
+  s === 'FULL GAME' ? '#10b981' : '#ef4444';
 const statusBg = (s: string) =>
-  s === 'FULL GAME' ? 'rgba(16,185,129,0.15)' : s === 'PARTIAL' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
+  s === 'FULL GAME' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
 
 
 
@@ -284,7 +287,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }: {
         }}>
           {!collapsed && (
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-              VR Arcade
+              Arcade
             </h2>
           )}
           <button onClick={onToggle} style={{
@@ -338,7 +341,7 @@ function Header({ now, onMenuToggle }: { now: Date; onMenuToggle: () => void }) 
           <Menu size={20} />
         </button>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>Welcome back,</span>
-        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Arcade Owner</span>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>VR XTREME</span>
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)' }}>
         {format(now, 'EEE, MMM do · HH:mm:ss')}
@@ -416,20 +419,7 @@ function MachineStatusCards({ machines, onDelete, onClearAll }: {
             </div>
           ))}
         </div>
-        {machines.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setConfirm({ type: 'all' })}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                background: 'transparent', border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: 8, padding: '6px 14px', color: '#ef4444',
-                fontSize: 12, cursor: 'pointer',
-              }}>
-              <Trash2 size={13} /> Clear All Machines
-            </button>
-          </div>
-        )}
+
       </div>
     </>
   );
@@ -542,7 +532,7 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
       const day = subDays(today, 6 - i);
       const ds = startOfDay(day), de = endOfDay(day);
       const dl = logs.filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de; });
-      return { date: format(day, 'EEE'), Full: dl.filter(l => l.status === 'FULL GAME').length, Partial: dl.filter(l => l.status === 'PARTIAL').length, Error: dl.filter(l => l.status === 'ERROR').length };
+      return { date: format(day, 'EEE'), Full: dl.filter(l => l.status === 'FULL GAME').length, Error: dl.filter(l => l.status === 'ERROR').length };
     });
   }, [logs]);
   return (
@@ -556,13 +546,12 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
             <YAxis allowDecimals={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
             <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
             <Bar dataKey="Full" fill="#10b981" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="Partial" fill="#f59e0b" radius={[3, 3, 0, 0]} />
             <Bar dataKey="Error" fill="#ef4444" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
-        {[['Full', '#10b981'], ['Partial', '#f59e0b'], ['Error', '#ef4444']].map(([l, c]) => (
+        {[['Full', '#10b981'], ['Error', '#ef4444']].map(([l, c]) => (
           <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: c }} />{l}
           </div>
@@ -580,21 +569,43 @@ function TodayPieChart({ logs }: { logs: GameLog[] }) {
   const dl = useMemo(() => logs.filter(l => l.date === today), [logs, today]);
   const data = [
     { name: 'Full', value: dl.filter(l => l.status === 'FULL GAME').length, color: '#10b981' },
-    { name: 'Partial', value: dl.filter(l => l.status === 'PARTIAL').length, color: '#f59e0b' },
     { name: 'Error', value: dl.filter(l => l.status === 'ERROR').length, color: '#ef4444' },
   ].filter(d => d.value > 0);
   if (data.length === 0) return <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p></div>;
   return (
     <div style={cardStyle}>
       <h2 style={{ ...sectionTitle, marginBottom: 16 }}>Today's Breakdown</h2>
-      <div style={{ height: 180 }}>
+      <div style={{ height: 200 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
-              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={80}
+              dataKey="value"
+              paddingAngle={2}
+              stroke="none"               // removes the white border around slices
+              strokeWidth={0}             // ensures no stroke
+            >
+              {data.map((d, i) => (
+                <Cell key={i} fill={d.color} />
+              ))}
             </Pie>
-            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
-            <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
+            <Tooltip
+              contentStyle={{
+                background: 'var(--surface)',
+                border: 'none',            // removes tooltip border
+                borderRadius: 8,
+                color: 'var(--text)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }}
+              iconType="circle"
+            />
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -641,7 +652,6 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
   const [date, setDate] = useState(todayStr());
   const dl = useMemo(() => logs.filter(l => l.date === date), [logs, date]);
   const full = dl.filter(l => l.status === 'FULL GAME').length;
-  const partial = dl.filter(l => l.status === 'PARTIAL').length;
   const errors = dl.filter(l => l.status === 'ERROR').length;
   const revenue = dl.reduce((s, l) => s + l.revenue_ksh, 0);
   const playtime = dl.reduce((s, l) => s + l.duration_minutes, 0);
@@ -659,7 +669,6 @@ function DailySummary({ logs }: { logs: GameLog[] }) {
             { label: 'Sessions', value: String(dl.length) },
             { label: 'Revenue', value: fmtKSH(revenue) },
             { label: 'Full Games', value: String(full) },
-            { label: 'Partial', value: String(partial) },
             { label: 'Errors', value: String(errors) },
             { label: 'Total Time', value: `${playtime.toFixed(0)} min` },
             { label: 'Avg Session', value: `${avg} min` },
@@ -682,7 +691,7 @@ const MACHINE_COLORS = [
   { bg: 'rgba(99,102,241,0.15)', border: '#6366f1', text: '#818cf8' },   // indigo
   { bg: 'rgba(16,185,129,0.15)', border: '#10b981', text: '#34d399' },   // green
   { bg: 'rgba(245,158,11,0.15)', border: '#f59e0b', text: '#fbbf24' },   // amber
-  { bg: 'rgba(239,68,68,0.15)',  border: '#ef4444', text: '#f87171' },   // red
+  { bg: 'rgba(239,68,68,0.15)', border: '#ef4444', text: '#f87171' },   // red
   { bg: 'rgba(59,130,246,0.15)', border: '#3b82f6', text: '#60a5fa' },   // blue
 ];
 
@@ -699,7 +708,7 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
 
   const allMachineIds = useMemo(() =>
     [...new Set(logs.map(l => l.computer_id))].sort(),
-  [logs]);
+    [logs]);
 
   const displayed = useMemo(() => {
     const base = machineFilter === 'all' ? logs : logs.filter(l => l.computer_id === machineFilter);
@@ -793,7 +802,6 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
     sessions: rows.length,
     revenue: rows.reduce((s, l) => s + l.revenue_ksh, 0),
     full: rows.filter(l => l.status === 'FULL GAME').length,
-    partial: rows.filter(l => l.status === 'PARTIAL').length,
     errors: rows.filter(l => l.status === 'ERROR').length,
     playtime: rows.reduce((s, l) => s + l.duration_minutes, 0),
   });
@@ -829,7 +837,6 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
             { label: 'Sessions', value: String(overall.sessions), color: 'var(--text)' },
             { label: 'Revenue', value: fmtKSH(overall.revenue), color: '#10b981' },
             { label: 'Full', value: String(overall.full), color: '#10b981' },
-            { label: 'Partial', value: String(overall.partial), color: '#f59e0b' },
             { label: 'Errors', value: String(overall.errors), color: '#ef4444' },
             { label: 'Playtime', value: `${overall.playtime.toFixed(0)}m`, color: 'var(--muted)' },
           ].map(s => (
@@ -918,7 +925,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
 
   const allMachineIds = useMemo(() =>
     [...new Set(logs.map(l => l.computer_id))].sort(),
-  [logs]);
+    [logs]);
 
   const { rangeStart, rangeEnd } = useMemo(() => {
     const now = new Date();
@@ -935,7 +942,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
       return d >= rangeStart && d <= rangeEnd &&
         (machineFilter === 'all' || l.computer_id === machineFilter);
     }),
-  [logs, rangeStart, rangeEnd, machineFilter]);
+    [logs, rangeStart, rangeEnd, machineFilter]);
 
   // Group by date desc
   const groupedByDate = useMemo(() => {
@@ -1041,7 +1048,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
 
   const allMachineIds = useMemo(() =>
     [...new Set(logs.map(l => l.computer_id))].sort(),
-  [logs]);
+    [logs]);
 
   const filtered = useMemo(() => {
     const byPeriod = period === 999 ? logs : logs.filter(l => parseISO(l.start_time) >= startOfDay(subDays(new Date(), period)));
@@ -1049,14 +1056,13 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
   }, [logs, period, machineFilter]);
 
   const gameStats = useMemo(() => {
-    const map = new Map<string, { sessions: number; revenue: number; full: number; partial: number; errors: number; total_minutes: number }>();
+    const map = new Map<string, { sessions: number; revenue: number; full: number; errors: number; total_minutes: number }>();
     filtered.forEach(l => {
-      const p = map.get(l.game_name) ?? { sessions: 0, revenue: 0, full: 0, partial: 0, errors: 0, total_minutes: 0 };
+      const p = map.get(l.game_name) ?? { sessions: 0, revenue: 0, full: 0, errors: 0, total_minutes: 0 };
       map.set(l.game_name, {
         sessions: p.sessions + 1,
         revenue: p.revenue + l.revenue_ksh,
         full: p.full + (l.status === 'FULL GAME' ? 1 : 0),
-        partial: p.partial + (l.status === 'PARTIAL' ? 1 : 0),
         errors: p.errors + (l.status === 'ERROR' ? 1 : 0),
         total_minutes: p.total_minutes + l.duration_minutes,
       });
@@ -1372,9 +1378,11 @@ function MachinePricingOverrides({
 function SettingsView({
   settings,
   updateSettings,
+  onClearAllMachines, // 👈 add this
 }: {
   settings: ArcadeSettings | null;
   updateSettings: (updates: Partial<ArcadeSettings>) => Promise<any>;
+  onClearAllMachines: () => void;
 }) {
   const [form, setForm] = useState({
     price_per_full_game: 400,
@@ -1384,6 +1392,12 @@ function SettingsView({
   });
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // PIN state
+  const [pinForm, setPinForm] = useState({ currentPin: '', newPin: '', confirmPin: '' });
+  const [pinSaveStatus, setPinSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+  const [pinError, setPinError] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -1412,91 +1426,243 @@ function SettingsView({
     setTimeout(() => setSaveStatus('idle'), 3000);
   };
 
+  const handlePinChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinError('');
+    if (pinForm.newPin.length !== 4 || !/^\d{4}$/.test(pinForm.newPin)) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
+    }
+    if (pinForm.newPin !== pinForm.confirmPin) {
+      setPinError('PINs do not match');
+      return;
+    }
+    if (settings?.pin_code && pinForm.currentPin !== settings.pin_code) {
+      setPinError('Current PIN is incorrect');
+      return;
+    }
+    setPinSaveStatus('saving');
+    const err = await updateSettings({ pin_code: pinForm.newPin });
+    setPinSaveStatus(err ? 'error' : 'ok');
+    if (!err) setPinForm({ currentPin: '', newPin: '', confirmPin: '' });
+    setTimeout(() => setPinSaveStatus('idle'), 3000);
+  };
+
   if (!settings) return <div style={cardStyle}>Loading settings…</div>;
 
   return (
-    <div style={cardStyle}>
-      <h2 style={sectionTitle}>Arcade Configuration</h2>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>
-        These settings are saved to the cloud and applied to all VR machines.
-      </p>
-      <form onSubmit={handleSubmit} style={{ maxWidth: 400 }}>
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-            Price per Full Game (KSH)
-          </label>
-          <input
-            type="number"
-            value={form.price_per_full_game}
-            onChange={handleNumberChange('price_per_full_game')}
-            style={inputStyle}
-            step="10"
-            min="0"
-          />
-        </div>
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-            Daily Revenue Target (KSH)
-          </label>
-          <input
-            type="number"
-            value={form.daily_target_ksh}
-            onChange={handleNumberChange('daily_target_ksh')}
-            style={inputStyle}
-            step="100"
-            min="0"
-          />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-          <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      {/* Global pricing / settings card */}
+      <div style={cardStyle}>
+        <h2 style={sectionTitle}>Arcade Configuration</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>
+          These settings are saved to the cloud and applied to all VR machines.
+        </p>
+        <form onSubmit={handleSubmit} style={{ maxWidth: 400 }}>
+          <div style={{ marginBottom: 20 }}>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-              Full Game Min (mins)
+              Price per Full Game (KSH)
             </label>
             <input
               type="number"
-              value={form.full_game_min_minutes}
-              onChange={handleNumberChange('full_game_min_minutes')}
+              value={form.price_per_full_game}
+              onChange={handleNumberChange('price_per_full_game')}
               style={inputStyle}
-              step="1"
-              min="1"
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-              Error Max (mins)
-            </label>
-            <input
-              type="number"
-              value={form.error_max_minutes}
-              onChange={handleNumberChange('error_max_minutes')}
-              style={inputStyle}
-              step="1"
+              step="10"
               min="0"
             />
           </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              Daily Revenue Target (KSH)
+            </label>
+            <input
+              type="number"
+              value={form.daily_target_ksh}
+              onChange={handleNumberChange('daily_target_ksh')}
+              style={inputStyle}
+              step="100"
+              min="0"
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                Full Game Min (mins)
+              </label>
+              <input
+                type="number"
+                value={form.full_game_min_minutes}
+                onChange={handleNumberChange('full_game_min_minutes')}
+                style={inputStyle}
+                step="1"
+                min="1"
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                Error Max (mins)
+              </label>
+              <input
+                type="number"
+                value={form.error_max_minutes}
+                onChange={handleNumberChange('error_max_minutes')}
+                style={inputStyle}
+                step="1"
+                min="0"
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button
+              type="submit"
+              disabled={saving}
+              style={{
+                background: saving ? 'var(--surface2)' : '#10b981',
+                color: saving ? 'var(--muted)' : '#fff',
+                border: 'none',
+                padding: '10px 24px',
+                borderRadius: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: saving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save Settings'}
+            </button>
+            {saveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ Saved</span>}
+            {saveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed</span>}
+          </div>
+        </form>
+      </div>
+
+      {/* PIN Management card */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <LockKeyhole size={18} color="var(--accent)" />
+          <h3 style={{ ...sectionTitle, fontSize: 15 }}>Security PIN</h3>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              background: saving ? 'var(--surface2)' : '#10b981',
-              color: saving ? 'var(--muted)' : '#fff',
-              border: 'none',
-              padding: '10px 24px',
-              borderRadius: 8,
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: saving ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {saving ? 'Saving…' : 'Save Settings'}
-          </button>
-          {saveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ Saved</span>}
-          {saveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed</span>}
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24 }}>
+          Change the 4‑digit access code required to open the dashboard.
+        </p>
+        <form onSubmit={handlePinChange} style={{ maxWidth: 400 }}>
+          {settings.pin_code && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+                Current PIN
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pinForm.currentPin}
+                onChange={e => setPinForm({ ...pinForm, currentPin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                style={{ ...inputStyle, letterSpacing: 8, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }}
+                placeholder="••••"
+              />
+            </div>
+          )}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              New PIN (4 digits)
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pinForm.newPin}
+              onChange={e => setPinForm({ ...pinForm, newPin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+              style={{ ...inputStyle, letterSpacing: 8, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }}
+              placeholder="••••"
+            />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              Confirm New PIN
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pinForm.confirmPin}
+              onChange={e => setPinForm({ ...pinForm, confirmPin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+              style={{ ...inputStyle, letterSpacing: 8, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }}
+              placeholder="••••"
+            />
+          </div>
+          {pinError && <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{pinError}</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button
+              type="submit"
+              disabled={pinSaveStatus === 'saving'}
+              style={{
+                background: pinSaveStatus === 'saving' ? 'var(--surface2)' : '#10b981',
+                color: pinSaveStatus === 'saving' ? 'var(--muted)' : '#fff',
+                border: 'none', padding: '10px 24px', borderRadius: 8,
+                fontSize: 14, fontWeight: 600,
+                cursor: pinSaveStatus === 'saving' ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {pinSaveStatus === 'saving' ? 'Saving…' : 'Update PIN'}
+            </button>
+            {pinSaveStatus === 'ok' && <span style={{ fontSize: 13, color: '#10b981' }}>✓ PIN updated</span>}
+            {pinSaveStatus === 'error' && <span style={{ fontSize: 13, color: '#ef4444' }}>✗ Failed to save</span>}
+          </div>
+        </form>
+      </div>
+      <div style={{
+        ...cardStyle,
+        borderColor: 'rgba(239,68,68,0.3)',
+        background: 'linear-gradient(135deg, rgba(239,68,68,0.05) 0%, rgba(239,68,68,0.02) 100%)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <AlertTriangle size={18} color="#ef4444" />
+          <h3 style={{ ...sectionTitle, fontSize: 15, color: '#ef4444' }}>Danger Zone</h3>
         </div>
-      </form>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
+          Permanently delete all machines and their entire game history. This action cannot be undone.
+        </p>
+        <button
+          onClick={() => setShowClearConfirm(true)}
+          style={{
+            background: 'transparent',
+            border: '1px solid rgba(239,68,68,0.5)',
+            borderRadius: 8,
+            padding: '10px 20px',
+            color: '#ef4444',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+            e.currentTarget.style.borderColor = '#ef4444';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+            e.currentTarget.style.borderColor = 'rgba(239,68,68,0.5)';
+          }}
+        >
+          <Trash2 size={14} />
+          Clear All Machines
+        </button>
+      </div>
+      {showClearConfirm && (
+        <ConfirmModal
+          message="This will permanently delete ALL machines, their full game history, and all revenue records from the database. The live feed and all analytics will be cleared. This cannot be undone."
+          onConfirm={() => {
+            onClearAllMachines();
+            setShowClearConfirm(false);
+          }}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
     </div>
+
   );
 }
 
@@ -1505,12 +1671,35 @@ function SettingsView({
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  // ── PIN AUTH ──────────────────────────────────────────────────────────────
+  const [authenticated, setAuthenticated] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [storedPin, setStoredPin] = useState<string | null>(null);
+  const [pinLoading, setPinLoading] = useState(true);
+
+  // ── DATA HOOKS (must be called unconditionally) ────────────────────────────
   const { logs, setLogs, loading } = useGameLogs(1000);
   const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
- const { settings, loading: settingsLoading, updateSettings } = useArcadeSettings();
+  const { settings, loading: settingsLoading, updateSettings } = useArcadeSettings();
+
+  // ── UI STATE ───────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(new Date());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    const fetchPin = async () => {
+      const { data } = await supabase
+        .from('arcade_settings')
+        .select('pin_code')
+        .eq('id', 1)
+        .single();
+      setStoredPin(data?.pin_code ?? null);
+      setPinLoading(false);
+    };
+    fetchPin();
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -1524,6 +1713,18 @@ export default function Dashboard() {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // If no PIN is set in DB, allow any 4-digit entry (first-time setup bypass)
+    if (!storedPin || pinInput === storedPin) {
+      setAuthenticated(true);
+      setPinError('');
+    } else {
+      setPinError('Incorrect PIN. Try again.');
+      setPinInput('');
+    }
+  };
 
   // ── MACHINE DELETE FUNCTIONS ─────────────────────────────────────────────────
 
@@ -1604,7 +1805,128 @@ export default function Dashboard() {
     return logs.filter(l => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
   }, [logs]);
 
- 
+  if (pinLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!authenticated) {
+    return (
+      <>
+        <style>{`
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+          :root {
+            --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
+            --border: rgba(255,255,255,0.07); --text: #f0f2f8;
+            --muted: #6b7280; --accent: #6366f1;
+          }
+          body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+          @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
+        `}</style>
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+        <div
+          className="auth-background"
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'var(--bg)',
+            position: 'relative',
+          }}
+        >
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 20,
+            padding: 36,
+            width: 360,
+            maxWidth: '90%',
+            boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+            position: 'relative',
+            zIndex: 1,
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: '50%',
+                background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <LockKeyhole size={26} color="var(--accent)" />
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, color: 'var(--text)', marginBottom: 6 }}>
+                  VR Arcade
+                </h2>
+                <p style={{ fontSize: 14, color: 'var(--muted)' }}>
+                  {storedPin ? 'Enter your 4‑digit PIN to continue' : 'Enter any 4 digits (no PIN set yet)'}
+                </p>
+              </div>
+              <form onSubmit={handlePinSubmit} style={{ width: '100%', marginTop: 8 }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d*"
+                  autoComplete="new-password"
+                  name="pin-code"
+                  maxLength={4}
+                  value={pinInput}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                    setPinInput(val);
+                    setPinError('');
+                  }}
+                  onFocus={(e) => e.target.removeAttribute('readonly')}
+                  readOnly
+                  placeholder="••••"
+                  autoFocus
+                  className="pin-masked"
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    fontSize: 28,
+                    textAlign: 'center',
+                    background: 'var(--surface2)',
+                    border: `1px solid ${pinError ? '#ef4444' : 'var(--border)'}`,
+                    borderRadius: 12,
+                    color: 'var(--text)',
+                    outline: 'none',
+                    letterSpacing: 12,
+                    fontFamily: 'monospace',
+                    transition: 'border-color 0.2s',
+                  }}
+                />
+                {pinError && (
+                  <p style={{ color: '#ef4444', fontSize: 13, marginTop: 8, textAlign: 'center' }}>
+                    {pinError}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={pinInput.length !== 4}
+                  style={{
+                    marginTop: 16,
+                    width: '100%',
+                    padding: '13px',
+                    background: pinInput.length === 4 ? 'var(--accent)' : 'var(--surface2)',
+                    border: 'none',
+                    borderRadius: 10,
+                    color: pinInput.length === 4 ? '#fff' : 'var(--muted)',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  Unlock Dashboard
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <style>{`
@@ -1665,8 +1987,43 @@ export default function Dashboard() {
             )}
             {activeTab === 'activity' && <ActivityView logs={logs} />}
             {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-            {activeTab === 'settings' && (<SettingsView settings={settings} updateSettings={updateSettings} />)}
+            {activeTab === 'settings' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} />)}
           </main>
+          {/* Footer */}
+          <footer style={{
+            borderTop: '1px solid var(--border)',
+            background: 'var(--surface)',
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px',
+            fontSize: '12px',
+            color: 'var(--muted)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>© {new Date().getFullYear()} VR Arcade</span>
+              <span style={{ opacity: 0.5 }}>|</span>
+              <span>Built by <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Charles</span></span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <a href="mailto:your.email@example.com" style={{
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                transition: 'color 0.15s',
+              }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
+              >
+                charlesmacharia4564@gmail.com
+              </a>
+              <span style={{ opacity: 0.4 }}>|</span>
+
+              <span >📞 +254 769 640 918</span>
+            </div>
+          </footer>
         </div>
       </div>
     </>

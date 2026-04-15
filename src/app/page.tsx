@@ -16,7 +16,7 @@ import {
   LayoutDashboard, BarChart3, Activity, Zap,
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
-  TrendingUp, Clock, Award, Gamepad2, LockKeyhole,
+  TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
 } from 'lucide-react';
 
 
@@ -108,20 +108,17 @@ function useGameLogs(limit = 1000) {
   }, [limit]);
   return { logs, setLogs, loading };
 }
+
 function useMachineStatus() {
   const [machines, setMachines] = useState<MachineStatus[]>([]);
-  const [pricingMap, setPricingMap] = useState<Record<string, MachinePricing>>({});
 
   const fetchMachines = useCallback(async () => {
-    const [{ data: statusData }, { data: pricingData }] = await Promise.all([
-      supabase.from('machine_status').select('*'),
-      supabase.from('machine_pricing').select('*'),
-    ]);
-    if (statusData) setMachines(statusData as MachineStatus[]);
-    if (pricingData) {
-      const map: Record<string, MachinePricing> = {};
-      (pricingData as MachinePricing[]).forEach(p => { map[p.computer_id] = p; });
-      setPricingMap(map);
+    const { data: statusData, error } = await supabase
+      .from('machine_status')
+      .select('*');
+
+    if (statusData && !error) {
+      setMachines(statusData as MachineStatus[]);
     }
   }, []);
 
@@ -129,7 +126,6 @@ function useMachineStatus() {
     fetchMachines();
     const ch = supabase.channel('machine_status_rt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_status' }, () => fetchMachines())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'machine_pricing' }, () => fetchMachines())
       .subscribe();
     return () => { ch.unsubscribe(); };
   }, [fetchMachines]);
@@ -137,12 +133,11 @@ function useMachineStatus() {
   const now = Date.now();
 
   return {
+    // We map over them just to calculate the online/offline status based on the 5-minute window
     machines: machines.map(m => ({
       ...m,
       is_online: new Date(m.last_seen).getTime() > now - 5 * 60 * 1000,
-      custom_rate_per_full_game: pricingMap[m.computer_id]?.custom_rate_per_full_game ?? null,
-      custom_rate_per_minute: pricingMap[m.computer_id]?.custom_rate_per_minute ?? null,
-      label: pricingMap[m.computer_id]?.label ?? m.computer_id,
+      label: m.computer_id, // Fallback since we removed custom labels
     })) as MachineWithOnline[],
     setMachines,
     refetch: fetchMachines,
@@ -178,7 +173,7 @@ function useArcadeSettings() {
     return error;
   };
 
-  return { settings, loading, updateSettings };
+  return { settings, loading, updateSettings, refetch: fetchSettings }; // 👈 add refetch
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -252,9 +247,9 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-function Sidebar({ active, onNavigate, collapsed, onToggle }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh }: {
   active: string; onNavigate: (id: string) => void;
-  collapsed: boolean; onToggle: () => void;
+  collapsed: boolean; onToggle: () => void; onRefresh: () => void;
 }) {
   return (
     <>
@@ -325,6 +320,32 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }: {
             </button>
           );
         })}
+        {/* Refresh button (below Settings) */}
+        <button
+          onClick={onRefresh}
+          title={collapsed ? "Refresh data" : undefined}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: collapsed ? 0 : 10,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '10px' : '10px 12px',
+            borderRadius: 8,
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--muted)',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            width: '100%',
+            whiteSpace: 'nowrap',
+            marginTop: 'auto', // pushes to bottom if desired
+          }}
+        >
+          <RefreshCw size={17} />
+          {!collapsed && "Refresh"}
+        </button>
       </aside>
     </>
   );
@@ -333,7 +354,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Header
 // ─────────────────────────────────────────────────────────────────────────────
-function Header({ now, onMenuToggle }: { now: Date; onMenuToggle: () => void }) {
+function Header({ now, onMenuToggle, mounted }: { now: Date; onMenuToggle: () => void; mounted: boolean }) {
   return (
     <header style={{
       background: 'var(--surface)',
@@ -357,7 +378,7 @@ function Header({ now, onMenuToggle }: { now: Date; onMenuToggle: () => void }) 
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>VR XTREME</span>
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-        {format(now, 'EEE, MMM do · HH:mm:ss')}
+        {mounted ? format(now, 'EEE, MMM do · HH:mm:ss') : 'Loading time...'}
       </div>
     </header>
   );
@@ -740,7 +761,7 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <h2 style={sectionTitle}>Live Session Feed</h2>
         {allMachineIds.length > 1 && (
-          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24 }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, overflowX: 'auto', flexWrap: 'nowrap', maxWidth: '100%', }}>
             <button style={tabStyle(machineFilter === 'all')} onClick={() => setMachineFilter('all')}>All</button>
             {allMachineIds.map(id => {
               const mc = getMachineColor(id, allMachineIds);
@@ -985,7 +1006,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {/* Filter bar */}
-      <div style={{ ...cardStyle, padding: '14px 20px' }}>
+      <div style={{ ...cardStyle, padding: '14px 20px', overflowX: 'auto' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
             <Filter size={14} color="var(--muted)" />
@@ -1002,7 +1023,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
           )}
           {/* Machine tabs — only shown when >1 machine exists */}
           {allMachineIds.length > 1 && (
-            <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, marginLeft: 'auto' }}>
+            <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, marginLeft: 'auto', overflowX: 'auto', flexWrap: 'nowrap', maxWidth: '100%', }}>
               <button style={machineTabStyle('all')} onClick={() => setMachineFilter('all')}>All</button>
               {allMachineIds.map(id => (
                 <button key={id} style={machineTabStyle(id)} onClick={() => setMachineFilter(id)}>{id}</button>
@@ -1134,7 +1155,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <h2 style={sectionTitle}>Game Leaderboard</h2>
             {allMachineIds.length > 1 && (
-              <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24 }}>
+              <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, overflowX: 'auto', flexWrap: 'nowrap', maxWidth: '100%', }}>
                 <button style={machineTabStyle('all')} onClick={() => setMachineFilter('all')}>All Machines</button>
                 {allMachineIds.map(id => (
                   <button key={id} style={machineTabStyle(id)} onClick={() => setMachineFilter(id)}>{id}</button>
@@ -1694,8 +1715,22 @@ export default function Dashboard() {
   // ── DATA HOOKS (must be called unconditionally) ────────────────────────────
   const { logs, setLogs, loading } = useGameLogs(1000);
   const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
-  const { settings, loading: settingsLoading, updateSettings } = useArcadeSettings();
+  const { settings, loading: settingsLoading, updateSettings, refetch: refetchSettings } = useArcadeSettings();
+  const [mounted, setMounted] = useState(false);
 
+  const handleRefresh = useCallback(() => {
+    refetchMachines();
+    refetchSettings();
+    // For game logs, we can simply reload from Supabase directly
+    supabase
+      .from('game_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000)
+      .then(({ data }) => {
+        if (data) setLogs(data as GameLog[]);
+      });
+  }, [refetchMachines, refetchSettings, setLogs]);
   // ── UI STATE ───────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('dashboard');
   const [now, setNow] = useState(new Date());
@@ -1715,6 +1750,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -1975,9 +2011,10 @@ export default function Dashboard() {
           onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(p => !p)}
+          onRefresh={handleRefresh}
         />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} />
+          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
           <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
             {activeTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

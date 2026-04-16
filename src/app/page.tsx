@@ -247,9 +247,11 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing }: {
   active: string; onNavigate: (id: string) => void;
-  collapsed: boolean; onToggle: () => void; onRefresh: () => void;
+  collapsed: boolean; onToggle: () => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
 }) {
   return (
     <>
@@ -323,6 +325,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh }: {
         {/* Refresh button (below Settings) */}
         <button
           onClick={onRefresh}
+          disabled={isRefreshing}
           title={collapsed ? "Refresh data" : undefined}
           style={{
             display: 'flex',
@@ -336,15 +339,21 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh }: {
             color: 'var(--muted)',
             fontSize: 13,
             fontWeight: 500,
-            cursor: 'pointer',
+            cursor: isRefreshing ? 'not-allowed' : 'pointer',
             transition: 'all 0.15s',
             width: '100%',
             whiteSpace: 'nowrap',
-            marginTop: 'auto', // pushes to bottom if desired
+            marginTop: 'auto',
+            opacity: isRefreshing ? 0.7 : 1,
           }}
         >
-          <RefreshCw size={17} />
-          {!collapsed && "Refresh"}
+          <RefreshCw
+            size={17}
+            style={{
+              animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+            }}
+          />
+          {!collapsed && (isRefreshing ? "Refreshing..." : "Refresh")}
         </button>
       </aside>
     </>
@@ -1718,18 +1727,28 @@ export default function Dashboard() {
   const { settings, loading: settingsLoading, updateSettings, refetch: refetchSettings } = useArcadeSettings();
   const [mounted, setMounted] = useState(false);
 
-  const handleRefresh = useCallback(() => {
-    refetchMachines();
-    refetchSettings();
-    // For game logs, we can simply reload from Supabase directly
-    supabase
-      .from('game_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(1000)
-      .then(({ data }) => {
-        if (data) setLogs(data as GameLog[]);
-      });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refetchMachines(),
+        refetchSettings(),
+        supabase
+          .from('game_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1000)
+          .then(({ data }) => {
+            if (data) setLogs(data as GameLog[]);
+          }),
+      ]);
+    } catch (error) {
+      console.error('Refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [refetchMachines, refetchSettings, setLogs]);
   // ── UI STATE ───────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1990,6 +2009,7 @@ export default function Dashboard() {
         @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
         @keyframes glow { 0%,100%{box-shadow:0 0 6px #10b981} 50%{box-shadow:0 0 14px #10b981,0 0 4px #10b981} }
         @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
@@ -2012,7 +2032,9 @@ export default function Dashboard() {
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(p => !p)}
           onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
         />
+
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
           <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>

@@ -18,9 +18,8 @@ import {
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
-  PartyPopper, Download,
+  PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield,
 } from 'lucide-react';
-
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +58,28 @@ interface MachinePricing {
   custom_rate_per_minute: number | null;
   label: string;
   updated_at: string;
+}
+interface ArcadeUser {
+  id: string;
+  name: string;
+  pin_hash: string;
+  role: 'owner' | 'supervisor';
+  created_at: string;
+}
+interface ActiveSession {
+  userId: string;
+  name: string;
+  role: 'owner' | 'supervisor';
+}
+// PIN hashing using Web Crypto (SHA-256 + salt) — never stores plain PINs
+const PIN_SALT = 'arcade_vr_kiosk_2025';
+async function hashPin(pin: string): Promise<string> {
+  const data = new TextEncoder().encode(pin + PIN_SALT);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function verifyPin(pin: string, hash: string): Promise<boolean> {
+  return (await hashPin(pin)) === hash;
 }
 interface PricingConfig {
   id: number; use_per_minute: boolean; rate_per_full_game: number;
@@ -241,6 +262,254 @@ function ConfirmModal({ message, onConfirm, onCancel }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Login Screen — pick name → enter PIN
+// ─────────────────────────────────────────────────────────────────────────────
+function LoginScreen({ users, onLogin, onFirstSetup }: {
+  users: ArcadeUser[];
+  onLogin: (user: ArcadeUser) => void;
+  onFirstSetup: () => void;
+}) {
+  const [step, setStep] = useState<'pick' | 'pin' | 'register'>('pick');
+  const [selectedUser, setSelectedUser] = useState<ArcadeUser | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  // First-time setup state
+  const [regName, setRegName] = useState('');
+  const [regPin, setRegPin] = useState('');
+  const [regConfirm, setRegConfirm] = useState('');
+  const [regError, setRegError] = useState('');
+  const [regSaving, setRegSaving] = useState(false);
+
+  const isFirstTime = users.length === 0;
+
+  const handleSelectUser = (user: ArcadeUser) => {
+    setSelectedUser(user);
+    setPinInput('');
+    setPinError('');
+    setStep('pin');
+  };
+
+  const handlePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || pinInput.length !== 4) return;
+    setChecking(true);
+    const ok = await verifyPin(pinInput, selectedUser.pin_hash);
+    setChecking(false);
+    if (ok) {
+      onLogin(selectedUser);
+    } else {
+      setPinError('Wrong PIN. Try again.');
+      setPinInput('');
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError('');
+    if (!regName.trim()) { setRegError('Please enter your name.'); return; }
+    if (regPin.length !== 4) { setRegError('PIN must be exactly 4 digits.'); return; }
+    if (regPin !== regConfirm) { setRegError('PINs do not match.'); return; }
+    setRegSaving(true);
+    const pin_hash = await hashPin(regPin);
+    const { data, error } = await supabase.from('arcade_users').insert({
+      name: regName.trim(),
+      pin_hash,
+      role: isFirstTime ? 'owner' : 'supervisor',
+    }).select().single();
+    setRegSaving(false);
+    if (error) { setRegError('Could not save. Name may already exist.'); return; }
+    await onFirstSetup();
+    if (data) onLogin(data as ArcadeUser);
+  };
+
+  const sharedStyles = `
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
+      --border: rgba(255,255,255,0.07); --text: #f0f2f8;
+      --muted: #6b7280; --accent: #6366f1;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+    @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .auth-card { animation: fadeIn 0.2s ease; }
+    .user-btn:hover { background: rgba(99,102,241,0.12) !important; border-color: rgba(99,102,241,0.4) !important; }
+    .user-btn:hover .user-btn-name { color: #a5b4fc !important; }
+  `;
+
+  const wrap = (children: React.ReactNode) => (
+    <>
+      <style>{sharedStyles}</style>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div className="auth-card" style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 20, padding: 36, width: 380, maxWidth: '92%',
+          boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+        }}>
+          {children}
+        </div>
+      </div>
+    </>
+  );
+
+  // ── First-time setup / register ──────────────────────────────────────────
+  if (isFirstTime || step === 'register') {
+    return wrap(
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <UserPlus size={24} color="var(--accent)" />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, color: 'var(--text)', marginBottom: 4 }}>
+              {isFirstTime ? 'Create Owner Account' : 'Add Your Account'}
+            </h2>
+            <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+              {isFirstTime
+                ? 'No users yet. Create the first owner account to get started.'
+                : 'Register with a name and a 4-digit PIN.'}
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Your Name</label>
+            <input
+              type="text"
+              value={regName}
+              onChange={e => setRegName(e.target.value)}
+              placeholder="e.g. James"
+              autoFocus
+              style={{ width: '100%', padding: '11px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Choose a 4-digit PIN</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={regPin}
+              onChange={e => setRegPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              style={{ width: '100%', padding: '14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 26, textAlign: 'center', letterSpacing: 10, fontFamily: 'monospace', outline: 'none' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Confirm PIN</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={regConfirm}
+              onChange={e => setRegConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              style={{ width: '100%', padding: '14px', background: 'var(--surface2)', border: `1px solid ${regError && regConfirm.length === 4 && regPin !== regConfirm ? '#ef4444' : 'var(--border)'}`, borderRadius: 10, color: 'var(--text)', fontSize: 26, textAlign: 'center', letterSpacing: 10, fontFamily: 'monospace', outline: 'none' }}
+            />
+          </div>
+          {regError && <p style={{ fontSize: 13, color: '#ef4444', textAlign: 'center' }}>{regError}</p>}
+          <button
+            type="submit"
+            disabled={regSaving || !regName.trim() || regPin.length !== 4 || regConfirm.length !== 4}
+            style={{ padding: '13px', background: 'var(--accent)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: regSaving ? 0.7 : 1, marginTop: 4 }}
+          >
+            {regSaving ? 'Saving…' : isFirstTime ? 'Create Owner Account' : 'Register & Sign In'}
+          </button>
+          {!isFirstTime && (
+            <button type="button" onClick={() => setStep('pick')} style={{ padding: '10px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer' }}>
+              ← Back
+            </button>
+          )}
+        </form>
+      </div>
+    );
+  }
+
+  // ── PIN entry ────────────────────────────────────────────────────────────
+  if (step === 'pin' && selectedUser) {
+    return wrap(
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: selectedUser.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)', border: `1px solid ${selectedUser.role === 'owner' ? 'rgba(16,185,129,0.3)' : 'rgba(99,102,241,0.3)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {selectedUser.role === 'owner' ? <ShieldCheck size={24} color="#10b981" /> : <Shield size={24} color="var(--accent)" />}
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, color: 'var(--text)', marginBottom: 4 }}>
+              Hi, {selectedUser.name}
+            </h2>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: selectedUser.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)', color: selectedUser.role === 'owner' ? '#10b981' : 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {selectedUser.role}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handlePinSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'center' }}>Enter your PIN</label>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={pinInput}
+            onChange={e => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+            placeholder="••••"
+            autoFocus
+            style={{ width: '100%', padding: '16px', background: 'var(--surface2)', border: `1px solid ${pinError ? '#ef4444' : 'var(--border)'}`, borderRadius: 12, color: 'var(--text)', fontSize: 30, textAlign: 'center', letterSpacing: 14, fontFamily: 'monospace', outline: 'none', transition: 'border-color 0.2s' }}
+          />
+          {pinError && <p style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', margin: 0 }}>{pinError}</p>}
+          <button
+            type="submit"
+            disabled={pinInput.length !== 4 || checking}
+            style={{ padding: '13px', background: pinInput.length === 4 ? 'var(--accent)' : 'var(--surface2)', border: 'none', borderRadius: 10, color: pinInput.length === 4 ? '#fff' : 'var(--muted)', fontSize: 14, fontWeight: 600, cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed', transition: 'all 0.15s', marginTop: 4 }}
+          >
+            {checking ? 'Checking…' : 'Unlock Dashboard'}
+          </button>
+          <button type="button" onClick={() => { setStep('pick'); setPinInput(''); setPinError(''); }} style={{ padding: '10px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer' }}>
+            ← Switch user
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── User picker ──────────────────────────────────────────────────────────
+  return wrap(
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <LockKeyhole size={24} color="var(--accent)" />
+        </div>
+        <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, color: 'var(--text)' }}>VR Arcade</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>Select your name to sign in</p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {users.map(user => (
+          <button
+            key={user.id}
+            className="user-btn"
+            onClick={() => handleSelectUser(user)}
+            style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', width: '100%' }}
+          >
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: user.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {user.role === 'owner' ? <ShieldCheck size={18} color="#10b981" /> : <Shield size={18} color="var(--accent)" />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <p className="user-btn-name" style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 2, transition: 'color 0.15s' }}>{user.name}</p>
+              <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{user.role}</p>
+            </div>
+            <span style={{ fontSize: 18, color: 'var(--muted)', opacity: 0.5 }}>›</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Free Play / Birthday Mode Modal
 // ─────────────────────────────────────────────────────────────────────────────
 type FreePlaySession = { endTime: Date; durationHours: number; label: string } | null;
@@ -388,12 +657,14 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing, onFreePlay }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing, onFreePlay, session, onLogout }: {
   active: string; onNavigate: (id: string) => void;
   collapsed: boolean; onToggle: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   onFreePlay: () => void;
+  session: ActiveSession | null;
+  onLogout: () => void;
 }) {
   return (
     <>
@@ -443,7 +714,23 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
           </button>
         </div>
 
+        {/* User badge */}
+        {session && !collapsed && (
+          <div style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)', marginBottom: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: session.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {session.role === 'owner' ? <ShieldCheck size={14} color="#10b981" /> : <Shield size={14} color="var(--accent)" />}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.name}</p>
+                <p style={{ fontSize: 10, color: session.role === 'owner' ? '#10b981' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{session.role}</p>
+              </div>
+            </div>
+          </div>
+        )}
         {sidebarItems.map(item => {
+          // Hide Settings tab from supervisors
+          if (item.id === 'settings' && session?.role !== 'owner') return null;
           const Icon = item.icon;
           const isActive = active === item.id;
           return (
@@ -524,6 +811,26 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
         >
           <PartyPopper size={17} />
           {!collapsed && "Free Play Mode"}
+        </button>
+        {/* Logout button */}
+        <button
+          onClick={onLogout}
+          title={collapsed ? "Sign out" : undefined}
+          style={{
+            display: 'flex', alignItems: 'center',
+            gap: collapsed ? 0 : 10,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '10px' : '10px 12px',
+            borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)',
+            background: 'transparent', color: '#ef4444',
+            fontSize: 13, fontWeight: 500, cursor: 'pointer',
+            transition: 'all 0.15s', width: '100%', whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <X size={17} />
+          {!collapsed && "Sign out"}
         </button>
       </aside>
     </>
@@ -664,10 +971,10 @@ function ProgressCard({ todayRevenue, dailyTarget }: { todayRevenue: number; dai
 // ─────────────────────────────────────────────────────────────────────────────
 // Stats Cards
 // ─────────────────────────────────────────────────────────────────────────────
-function StatsCards({ logs }: { logs: GameLog[] }) {
+function StatsCards({ logs, effectiveRevenue }: { logs: GameLog[]; effectiveRevenue: (l: GameLog) => number }) {
   const today = todayStr();
   const todayLogs = useMemo(() => logs.filter(l => l.date === today), [logs, today]);
-  const revenue = todayLogs.reduce((s, l) => s + l.revenue_ksh, 0);
+  const revenue = todayLogs.reduce((s, l) => s + effectiveRevenue(l), 0);
   const sessions = todayLogs.length;
   const playtime = todayLogs.reduce((s, l) => s + l.duration_minutes, 0);
   const avg = sessions ? (playtime / sessions).toFixed(1) : '—';
@@ -1007,18 +1314,20 @@ function RecentSessionsTable({ logs }: { logs: GameLog[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 type ActivityFilter = 'today' | 'week' | 'month' | 'custom';
 
-function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
+function DayTotalBanner({ logs, date, machineFilter, allMachineIds, effectiveStatus, effectiveRevenue }: {
   logs: GameLog[]; date: string; machineFilter: string; allMachineIds: string[];
+  effectiveStatus: (l: GameLog) => GameLog['status'];
+  effectiveRevenue: (l: GameLog) => number;
 }) {
   const dl = logs.filter(l => l.date === date && (machineFilter === 'all' || l.computer_id === machineFilter));
   if (dl.length === 0) return null;
 
   const totals = (rows: GameLog[]) => ({
     sessions: rows.length,
-    revenue: rows.filter(l => l.status !== 'TEST').reduce((s, l) => s + l.revenue_ksh, 0),
-    full: rows.filter(l => l.status === 'FULL GAME').length,
-    errors: rows.filter(l => l.status === 'ERROR').length,
-    tests: rows.filter(l => l.status === 'TEST').length,
+    revenue: rows.reduce((s, l) => s + effectiveRevenue(l), 0),
+    full: rows.filter(l => effectiveStatus(l) === 'FULL GAME').length,
+    errors: rows.filter(l => effectiveStatus(l) === 'ERROR').length,
+    tests: rows.filter(l => effectiveStatus(l) === 'TEST').length,
     playtime: rows.reduce((s, l) => s + l.duration_minutes, 0),
   });
 
@@ -1145,12 +1454,17 @@ function StatusDropdown({ currentStatus, anchorRect, onSelect, onClose }: {
   );
 }
 
-function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChange }: {
+function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChange, effectiveStatus, effectiveRevenue }: {
   logs: GameLog[]; allMachineIds: string[]; showMachineCol: boolean;
   onStatusChange?: (logId: number, newStatus: GameLog['status']) => void;
+  effectiveStatus?: (l: GameLog) => GameLog['status'];
+  effectiveRevenue?: (l: GameLog) => number;
 }) {
   const [editingStatus, setEditingStatus] = useState<number | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
+  const getStatus = (l: GameLog) => effectiveStatus ? effectiveStatus(l) : l.status;
+  const getRevenue = (l: GameLog) => effectiveRevenue ? effectiveRevenue(l) : l.revenue_ksh;
 
   if (logs.length === 0) return (
     <p style={{ padding: '16px', color: 'var(--muted)', fontSize: 13 }}>No sessions.</p>
@@ -1184,8 +1498,10 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChan
                 )}
                 <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{log.game_name}</td>
                 <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
-                <td style={{ ...tdStyle, color: log.status === 'TEST' ? 'var(--muted)' : '#10b981', fontWeight: 600 }}>
-                  {log.status === 'TEST' ? <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{fmtKSH(log.revenue_ksh)}</span> : fmtKSH(log.revenue_ksh)}
+                <td style={{ ...tdStyle, color: getStatus(log) === 'TEST' ? 'var(--muted)' : '#10b981', fontWeight: 600 }}>
+                  {getStatus(log) === 'TEST'
+                    ? <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{fmtKSH(log.revenue_ksh)}</span>
+                    : fmtKSH(getRevenue(log))}
                 </td>
                 <td style={{ ...tdStyle, position: 'relative' }}>
                   {onStatusChange ? (
@@ -1203,17 +1519,17 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChan
                         title="Click to change status"
                         style={{
                           padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                          background: statusBg(log.status), color: statusColor(log.status),
+                          background: statusBg(getStatus(log)), color: statusColor(getStatus(log)),
                           cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
-                          border: `1px solid ${statusColor(log.status)}30`,
+                          border: `1px solid ${statusColor(getStatus(log))}30`,
                         }}
                       >
-                        {log.status}
+                        {getStatus(log)}
                         <span style={{ opacity: 0.5, fontSize: 9 }}>▼</span>
                       </span>
                       {editingStatus === log.id && anchorRect && (
                         <StatusDropdown
-                          currentStatus={log.status}
+                          currentStatus={getStatus(log)}
                           anchorRect={anchorRect}
                           onSelect={(s) => { onStatusChange(log.id, s); }}
                           onClose={() => { setEditingStatus(null); setAnchorRect(null); }}
@@ -1221,7 +1537,7 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChan
                       )}
                     </div>
                   ) : (
-                    <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
+                    <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(getStatus(log)), color: statusColor(getStatus(log)) }}>{getStatus(log)}</span>
                   )}
                 </td>
               </tr>
@@ -1233,10 +1549,70 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChan
   );
 }
 
-function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev: GameLog[]) => GameLog[]) => void }) {
+function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrides, effectiveStatus, effectiveRevenue }: {
+  logs: GameLog[];
+  freePlaySession: FreePlaySession;
+  statusOverrides: Map<number, GameLog['status']>;
+  setStatusOverrides: React.Dispatch<React.SetStateAction<Map<number, GameLog['status']>>>;
+  effectiveStatus: (l: GameLog) => GameLog['status'];
+  effectiveRevenue: (l: GameLog) => number;
+}) {
   const [filter, setFilter] = useState<ActivityFilter>('today');
   const [customDate, setCustomDate] = useState(todayStr());
   const [machineFilter, setMachineFilter] = useState<string>('all');
+
+  // When Free Play is active, auto-mark any newly inserted session as TEST
+  const knownLogIds = useRef<Set<number>>(new Set(logs.map(l => l.id)));
+  useEffect(() => {
+    if (!freePlaySession) return;
+    const now = Date.now();
+    if (freePlaySession.endTime.getTime() <= now) return;
+    const freePlayStart = freePlaySession.endTime.getTime() - freePlaySession.durationHours * 3600000;
+    logs.forEach(l => {
+      if (!knownLogIds.current.has(l.id)) {
+        knownLogIds.current.add(l.id);
+        const logTime = parseISO(l.start_time).getTime();
+        if (logTime >= freePlayStart) {
+          setStatusOverrides(prev => {
+            if (prev.has(l.id)) return prev;
+            const next = new Map(prev);
+            next.set(l.id, 'TEST');
+            return next;
+          });
+        }
+      }
+    });
+  }, [logs, freePlaySession, setStatusOverrides]);
+
+  // When free play ends, clear auto-TEST overrides (keep manually set ones)
+  const prevFreePlay = useRef<FreePlaySession>(null);
+  useEffect(() => {
+    if (prevFreePlay.current && !freePlaySession) {
+      setStatusOverrides(prev => {
+        const next = new Map(prev);
+        logs.forEach(l => {
+          if (next.get(l.id) === 'TEST' && l.status !== 'TEST') {
+            next.delete(l.id);
+          }
+        });
+        return next;
+      });
+    }
+    prevFreePlay.current = freePlaySession;
+  }, [freePlaySession, logs, setStatusOverrides]);
+
+  const handleStatusChange = (logId: number, newStatus: GameLog['status']) => {
+    setStatusOverrides(prev => {
+      const next = new Map(prev);
+      const original = logs.find(l => l.id === logId)?.status;
+      if (newStatus === original) {
+        next.delete(logId);
+      } else {
+        next.set(logId, newStatus);
+      }
+      return next;
+    });
+  };
 
   const allMachineIds = useMemo(() =>
     [...new Set(logs.map(l => l.computer_id))].sort(),
@@ -1266,30 +1642,11 @@ function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev:
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
 
-  const handleStatusChange = async (logId: number, newStatus: GameLog['status']) => {
-    // Optimistic update
-    setLogs(prev => prev.map(l => {
-      if (l.id !== logId) return l;
-      return { ...l, status: newStatus, revenue_ksh: newStatus === 'TEST' ? 0 : l.revenue_ksh };
-    }));
-    const updatePayload: Record<string, unknown> = { status: newStatus };
-    if (newStatus === 'TEST') updatePayload.revenue_ksh = 0;
-    const { error } = await supabase
-      .from('game_logs')
-      .update(updatePayload)
-      .eq('id', logId);
-    if (error) {
-      console.error('Status update failed:', error);
-      // Re-fetch to revert
-      const { data } = await supabase.from('game_logs').select('*').eq('id', logId).single();
-      if (data) setLogs(prev => prev.map(l => l.id === logId ? data as GameLog : l));
-    }
-  };
-
   const exportCSV = () => {
-    const headers = ['Date', 'Time', 'Day of Week', 'Machine ID', 'Game Name', 'Duration (min)', 'Status', 'Is Test', 'Revenue (KSH)', 'Session ID'];
+    const headers = ['Date', 'Time', 'Day of Week', 'Machine ID', 'Game Name', 'Duration (min)', 'DB Status', 'Display Status', 'Is Test', 'Revenue (KSH)', 'Session ID'];
     const rows = filtered.map(l => {
       const dt = parseISO(l.start_time);
+      const dispStatus = effectiveStatus(l);
       return [
         format(dt, 'yyyy-MM-dd'),
         format(dt, 'HH:mm:ss'),
@@ -1298,8 +1655,9 @@ function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev:
         l.game_name,
         l.duration_minutes.toFixed(1),
         l.status,
-        l.status === 'TEST' ? 'Yes' : 'No',
-        l.revenue_ksh.toFixed(2),
+        dispStatus,
+        dispStatus === 'TEST' ? 'Yes' : 'No',
+        effectiveRevenue(l).toFixed(2),
         l.id,
       ];
     });
@@ -1379,7 +1737,7 @@ function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev:
         <div style={cardStyle}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions found for this period.</p></div>
       ) : groupedByDate.map(([date, dayLogs]) => (
         <div key={date}>
-          <DayTotalBanner logs={logs} date={date} machineFilter={machineFilter} allMachineIds={allMachineIds} />
+          <DayTotalBanner logs={logs} date={date} machineFilter={machineFilter} allMachineIds={allMachineIds} effectiveStatus={effectiveStatus} effectiveRevenue={effectiveRevenue} />
 
           {/* When viewing ALL machines: show one sub-table per machine */}
           {machineFilter === 'all' && allMachineIds.length > 1 ? (
@@ -1393,10 +1751,10 @@ function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev:
                     <div style={{ padding: '10px 16px', background: mc.bg, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: mc.text }}>{machineId}</span>
                       <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        · {machineLogs.length} session{machineLogs.length !== 1 ? 's' : ''} · {fmtKSH(machineLogs.reduce((s, l) => s + l.revenue_ksh, 0))}
+                        · {machineLogs.length} session{machineLogs.length !== 1 ? 's' : ''} · {fmtKSH(machineLogs.reduce((s, l) => s + effectiveRevenue(l), 0))}
                       </span>
                     </div>
-                    <MachineSessionTable logs={machineLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} />
+                    <MachineSessionTable logs={machineLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} effectiveStatus={effectiveStatus} effectiveRevenue={effectiveRevenue} />
                   </div>
                 );
               })}
@@ -1404,7 +1762,7 @@ function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev:
           ) : (
             /* Single machine view — clean table, no machine column needed */
             <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-              <MachineSessionTable logs={dayLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} />
+              <MachineSessionTable logs={dayLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} effectiveStatus={effectiveStatus} effectiveRevenue={effectiveRevenue} />
             </div>
           )}
         </div>
@@ -1747,17 +2105,240 @@ function MachinePricingOverrides({
   );
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Management — owner only, shown inside SettingsView
+// ─────────────────────────────────────────────────────────────────────────────
+function UserManagement({ currentUserId, onUsersChanged }: {
+  currentUserId: string;
+  onUsersChanged: () => void;
+}) {
+  const [users, setUsers] = useState<ArcadeUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [newConfirm, setNewConfirm] = useState('');
+  const [newRole, setNewRole] = useState<'owner' | 'supervisor'>('supervisor');
+  const [addError, setAddError] = useState('');
+  const [addSaving, setAddSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [changePin, setChangePin] = useState<ArcadeUser | null>(null);
+  const [cpNew, setCpNew] = useState('');
+  const [cpConfirm, setCpConfirm] = useState('');
+  const [cpError, setCpError] = useState('');
+  const [cpSaving, setCpSaving] = useState(false);
+
+  const fetchUsers = useCallback(async () => {
+    const { data } = await supabase.from('arcade_users').select('*').order('created_at');
+    setUsers((data as ArcadeUser[]) ?? []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError('');
+    if (!newName.trim()) { setAddError('Name is required.'); return; }
+    if (newPin.length !== 4) { setAddError('PIN must be 4 digits.'); return; }
+    if (newPin !== newConfirm) { setAddError('PINs do not match.'); return; }
+    setAddSaving(true);
+    const pin_hash = await hashPin(newPin);
+    const { error } = await supabase.from('arcade_users').insert({ name: newName.trim(), pin_hash, role: newRole });
+    setAddSaving(false);
+    if (error) { setAddError('Could not add user. Name may already be taken.'); return; }
+    setNewName(''); setNewPin(''); setNewConfirm(''); setNewRole('supervisor');
+    setShowAdd(false);
+    await fetchUsers();
+    onUsersChanged();
+  };
+
+  const handleDelete = async (userId: string) => {
+    if (userId === currentUserId) return;
+    setDeleting(true);
+    await supabase.from('arcade_users').delete().eq('id', userId);
+    setDeleting(false);
+    setDeleteConfirm(null);
+    await fetchUsers();
+    onUsersChanged();
+  };
+
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCpError('');
+    if (cpNew.length !== 4) { setCpError('PIN must be 4 digits.'); return; }
+    if (cpNew !== cpConfirm) { setCpError('PINs do not match.'); return; }
+    setCpSaving(true);
+    const pin_hash = await hashPin(cpNew);
+    const { error } = await supabase.from('arcade_users').update({ pin_hash }).eq('id', changePin!.id);
+    setCpSaving(false);
+    if (error) { setCpError('Could not update PIN.'); return; }
+    setCpNew(''); setCpConfirm(''); setChangePin(null);
+    await fetchUsers();
+  };
+
+  const pinInputStyle: React.CSSProperties = { width: '100%', padding: '12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 24, textAlign: 'center', letterSpacing: 10, fontFamily: 'monospace', outline: 'none' };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 28, marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4, fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Users size={16} color="var(--accent)" /> User Management
+          </h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>Add or remove staff accounts. Each user has their own name and PIN.</p>
+        </div>
+        <button
+          onClick={() => { setShowAdd(p => !p); setAddError(''); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: showAdd ? 'var(--surface2)' : 'var(--accent)', color: showAdd ? 'var(--muted)' : '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <UserPlus size={14} /> {showAdd ? 'Cancel' : 'Add User'}
+        </button>
+      </div>
+
+      {/* Add user form */}
+      {showAdd && (
+        <div style={{ background: 'var(--surface2)', borderRadius: 12, border: '1px solid var(--border)', padding: '20px', marginBottom: 20 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>New user</h4>
+          <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Name</label>
+                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Alice" style={{ ...inputStyle, fontSize: 13 }} autoFocus />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Role</label>
+                <select value={newRole} onChange={e => setNewRole(e.target.value as 'owner' | 'supervisor')} style={{ ...inputStyle, fontSize: 13 }}>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>PIN (4 digits)</label>
+                <input type="password" inputMode="numeric" maxLength={4} value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" style={{ ...pinInputStyle, fontSize: 20, padding: '10px' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Confirm PIN</label>
+                <input type="password" inputMode="numeric" maxLength={4} value={newConfirm} onChange={e => setNewConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" style={{ ...pinInputStyle, fontSize: 20, padding: '10px', borderColor: newConfirm.length === 4 && newPin !== newConfirm ? '#ef4444' : 'var(--border)' }} />
+              </div>
+            </div>
+            {addError && <p style={{ fontSize: 13, color: '#ef4444' }}>{addError}</p>}
+            <button type="submit" disabled={addSaving} style={{ padding: '10px 20px', background: '#10b981', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}>
+              {addSaving ? 'Adding…' : 'Add User'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* User list */}
+      {loading ? <p style={{ fontSize: 13, color: 'var(--muted)' }}>Loading…</p> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {users.map(u => (
+            <div key={u.id} style={{ background: 'var(--surface2)', borderRadius: 12, border: '1px solid var(--border)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: u.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {u.role === 'owner' ? <ShieldCheck size={17} color="#10b981" /> : <Shield size={17} color="var(--accent)" />}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{u.name}</span>
+                  {u.id === currentUserId && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', fontWeight: 700 }}>You</span>}
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: u.role === 'owner' ? 'rgba(16,185,129,0.15)' : 'rgba(107,114,128,0.15)', color: u.role === 'owner' ? '#10b981' : 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{u.role}</span>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Added {format(parseISO(u.created_at), 'MMM d, yyyy')}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => { setChangePin(u); setCpNew(''); setCpConfirm(''); setCpError(''); }}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Change PIN
+                </button>
+                {u.id !== currentUserId && (
+                  <button
+                    onClick={() => setDeleteConfirm(u.id)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#ef4444', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 28, maxWidth: 380, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+              <AlertTriangle size={20} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Remove user?</h3>
+                <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
+                  {users.find(u => u.id === deleteConfirm)?.name} will no longer be able to sign in. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm)} disabled={deleting} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                {deleting ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change PIN modal */}
+      {changePin && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 28, maxWidth: 360, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Change PIN — {changePin.name}</h3>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>Set a new 4-digit PIN for this user.</p>
+            <form onSubmit={handleChangePin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>New PIN</label>
+                <input type="password" inputMode="numeric" maxLength={4} value={cpNew} onChange={e => setCpNew(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" autoFocus style={pinInputStyle} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Confirm PIN</label>
+                <input type="password" inputMode="numeric" maxLength={4} value={cpConfirm} onChange={e => setCpConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" style={{ ...pinInputStyle, borderColor: cpConfirm.length === 4 && cpNew !== cpConfirm ? '#ef4444' : 'var(--border)' }} />
+              </div>
+              {cpError && <p style={{ fontSize: 13, color: '#ef4444' }}>{cpError}</p>}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button type="button" onClick={() => setChangePin(null)} style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={cpSaving || cpNew.length !== 4 || cpConfirm.length !== 4} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  {cpSaving ? 'Saving…' : 'Update PIN'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings View
 // ─────────────────────────────────────────────────────────────────────────────
 function SettingsView({
   settings,
   updateSettings,
-  onClearAllMachines, // 👈 add this
+  onClearAllMachines,
+  session,
+  refreshUsers,
 }: {
   settings: ArcadeSettings | null;
   updateSettings: (updates: Partial<ArcadeSettings>) => Promise<any>;
   onClearAllMachines: () => void;
+  session: ActiveSession | null;
+  refreshUsers: () => Promise<void>;
 }) {
   const [form, setForm] = useState({
     price_per_full_game: 400,
@@ -2036,6 +2617,13 @@ function SettingsView({
           onCancel={() => setShowClearConfirm(false)}
         />
       )}
+
+      {/* User Management — owner only */}
+      {session?.role === 'owner' && (
+        <div style={cardStyle}>
+          <UserManagement currentUserId={session.userId} onUsersChanged={refreshUsers} />
+        </div>
+      )}
     </div>
 
   );
@@ -2046,12 +2634,24 @@ function SettingsView({
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  // ── PIN AUTH ──────────────────────────────────────────────────────────────
-  const [authenticated, setAuthenticated] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [storedPin, setStoredPin] = useState<string | null>(null);
-  const [pinLoading, setPinLoading] = useState(true);
+  // ── MULTI-USER AUTH ───────────────────────────────────────────────────────
+  const [session, setSession] = useState<ActiveSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [arcadeUsers, setArcadeUsers] = useState<ArcadeUser[]>([]);
+
+  // ── LOCAL STATUS OVERRIDES (frontend-only, never written to DB) ───────────
+  // This map stores supervisor-set status overrides keyed by log id.
+  // It sits at the top level so Dashboard revenue and StatsCards also reflect it.
+  const [statusOverrides, setStatusOverrides] = useState<Map<number, GameLog['status']>>(new Map());
+
+  const getEffectiveStatus = useCallback((log: GameLog): GameLog['status'] => {
+    return statusOverrides.get(log.id) ?? log.status;
+  }, [statusOverrides]);
+
+  const getEffectiveRevenue = useCallback((log: GameLog): number => {
+    const s = statusOverrides.get(log.id) ?? log.status;
+    return s === 'TEST' ? 0 : log.revenue_ksh;
+  }, [statusOverrides]);
 
   // ── FREE PLAY MODE ────────────────────────────────────────────────────────
   const [freePlaySession, setFreePlaySession] = useState<FreePlaySession>(null);
@@ -2091,17 +2691,19 @@ export default function Dashboard() {
   const [now, setNow] = useState(new Date());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // Load users from DB and restore session from sessionStorage
   useEffect(() => {
-    const fetchPin = async () => {
-      const { data } = await supabase
-        .from('arcade_settings')
-        .select('pin_code')
-        .eq('id', 1)
-        .single();
-      setStoredPin(data?.pin_code ?? null);
-      setPinLoading(false);
+    const init = async () => {
+      const { data } = await supabase.from('arcade_users').select('*').order('created_at');
+      setArcadeUsers((data as ArcadeUser[]) ?? []);
+      // Restore session if browser tab still open
+      try {
+        const stored = sessionStorage.getItem('arcade_session');
+        if (stored) setSession(JSON.parse(stored));
+      } catch {}
+      setAuthLoading(false);
     };
-    fetchPin();
+    init();
   }, []);
 
   useEffect(() => {
@@ -2118,16 +2720,20 @@ export default function Dashboard() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // If no PIN is set in DB, allow any 4-digit entry (first-time setup bypass)
-    if (!storedPin || pinInput === storedPin) {
-      setAuthenticated(true);
-      setPinError('');
-    } else {
-      setPinError('Incorrect PIN. Try again.');
-      setPinInput('');
-    }
+  const handleLogin = (user: ArcadeUser) => {
+    const s: ActiveSession = { userId: user.id, name: user.name, role: user.role };
+    setSession(s);
+    try { sessionStorage.setItem('arcade_session', JSON.stringify(s)); } catch {}
+  };
+
+  const handleLogout = () => {
+    setSession(null);
+    try { sessionStorage.removeItem('arcade_session'); } catch {}
+  };
+
+  const refreshUsers = async () => {
+    const { data } = await supabase.from('arcade_users').select('*').order('created_at');
+    setArcadeUsers((data as ArcadeUser[]) ?? []);
   };
 
   // ── MACHINE DELETE FUNCTIONS ─────────────────────────────────────────────────
@@ -2206,132 +2812,24 @@ export default function Dashboard() {
 
   const todayRevenue = useMemo(() => {
     const today = todayStr();
-    return logs.filter(l => l.date === today && l.status !== 'TEST').reduce((s, l) => s + l.revenue_ksh, 0);
-  }, [logs]);
+    return logs.filter(l => l.date === today).reduce((s, l) => s + getEffectiveRevenue(l), 0);
+  }, [logs, getEffectiveRevenue]);
 
-  if (pinLoading) {
+  if (authLoading) {
     return <LoadingScreen />;
   }
 
-  if (!authenticated) {
+  if (!session) {
     return (
-      <>
-        <style>{`
-          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-          :root {
-            --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
-            --border: rgba(255,255,255,0.07); --text: #f0f2f8;
-            --muted: #6b7280; --accent: #6366f1;
-          }
-          body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
-          @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
-        `}</style>
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-        <div
-          className="auth-background"
-          style={{
-            minHeight: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'var(--bg)',
-            position: 'relative',
-          }}
-        >
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 20,
-            padding: 36,
-            width: 360,
-            maxWidth: '90%',
-            boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
-            position: 'relative',
-            zIndex: 1,
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: '50%',
-                background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <LockKeyhole size={26} color="var(--accent)" />
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, color: 'var(--text)', marginBottom: 6 }}>
-                  VR Arcade
-                </h2>
-                <p style={{ fontSize: 14, color: 'var(--muted)' }}>
-                  {storedPin ? 'Enter your 4‑digit PIN to continue' : 'Enter any 4 digits (no PIN set yet)'}
-                </p>
-              </div>
-              <form onSubmit={handlePinSubmit} style={{ width: '100%', marginTop: 8 }}>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d*"
-                  autoComplete="new-password"
-                  name="pin-code"
-                  maxLength={4}
-                  value={pinInput}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                    setPinInput(val);
-                    setPinError('');
-                  }}
-                  onFocus={(e) => e.target.removeAttribute('readonly')}
-                  readOnly
-                  placeholder="••••"
-                  autoFocus
-                  className="pin-masked"
-                  style={{
-                    width: '100%',
-                    padding: '16px',
-                    fontSize: 28,
-                    textAlign: 'center',
-                    background: 'var(--surface2)',
-                    border: `1px solid ${pinError ? '#ef4444' : 'var(--border)'}`,
-                    borderRadius: 12,
-                    color: 'var(--text)',
-                    outline: 'none',
-                    letterSpacing: 12,
-                    fontFamily: 'monospace',
-                    transition: 'border-color 0.2s',
-                  }}
-                />
-                {pinError && (
-                  <p style={{ color: '#ef4444', fontSize: 13, marginTop: 8, textAlign: 'center' }}>
-                    {pinError}
-                  </p>
-                )}
-                <button
-                  type="submit"
-                  disabled={pinInput.length !== 4}
-                  style={{
-                    marginTop: 16,
-                    width: '100%',
-                    padding: '13px',
-                    background: pinInput.length === 4 ? 'var(--accent)' : 'var(--surface2)',
-                    border: 'none',
-                    borderRadius: 10,
-                    color: pinInput.length === 4 ? '#fff' : 'var(--muted)',
-                    fontSize: 15,
-                    fontWeight: 600,
-                    cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  Unlock Dashboard
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </>
+      <LoginScreen
+        users={arcadeUsers}
+        onLogin={handleLogin}
+        onFirstSetup={refreshUsers}
+      />
     );
   }
 
-  return (
+    return (
     <>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2370,6 +2868,8 @@ export default function Dashboard() {
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
           onFreePlay={() => setShowFreePlayModal(true)}
+          session={session}
+          onLogout={handleLogout}
         />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -2382,7 +2882,7 @@ export default function Dashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
                 <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
-                <StatsCards logs={logs} />
+                <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
                   <TodayPieChart logs={logs} />
                   <TopGames logs={logs} />
@@ -2397,9 +2897,9 @@ export default function Dashboard() {
                 <DailySummary logs={logs} />
               </div>
             )}
-            {activeTab === 'activity' && <ActivityView logs={logs} setLogs={setLogs} />}
+            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} />}
             {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-            {activeTab === 'settings' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} />)}
+            {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
           </main>
           {/* Footer */}
           <footer style={{
@@ -2417,7 +2917,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>© {new Date().getFullYear()} VR Arcade</span>
               <span style={{ opacity: 0.5 }}>|</span>
-              <span>Built by <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Charles</span></span>
+              <span>For Help Contact :           Email <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span>📩</span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

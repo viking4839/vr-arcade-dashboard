@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   AreaChart, Area, BarChart, Bar,
@@ -17,6 +18,7 @@ import {
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
+  PartyPopper, Download,
 } from 'lucide-react';
 
 
@@ -40,7 +42,7 @@ interface GameLog {
   end_time: string;
   duration_minutes: number;
   revenue_ksh: number;
-  status: 'FULL GAME' | 'ERROR';
+  status: 'FULL GAME' | 'ERROR' | 'TEST';
   date: string;
   created_at: string;
 }
@@ -78,9 +80,9 @@ const fmtKSH = (n: number) =>
   `KSH ${n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 const statusColor = (s: string) =>
-  s === 'FULL GAME' ? '#10b981' : '#ef4444';
+  s === 'FULL GAME' ? '#10b981' : s === 'ERROR' ? '#ef4444' : '#6b7280';
 const statusBg = (s: string) =>
-  s === 'FULL GAME' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
+  s === 'FULL GAME' ? 'rgba(16,185,129,0.15)' : s === 'ERROR' ? 'rgba(239,68,68,0.15)' : 'rgba(107,114,128,0.15)';
 
 
 
@@ -103,6 +105,8 @@ function useGameLogs(limit = 1000) {
     channel = supabase.channel('game_logs_rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_logs' },
         (payload) => setLogs(prev => [payload.new as GameLog, ...prev].slice(0, limit)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_logs' },
+        (payload) => setLogs(prev => prev.map(l => l.id === (payload.new as GameLog).id ? payload.new as GameLog : l)))
       .subscribe();
     return () => { channel?.unsubscribe(); };
   }, [limit]);
@@ -237,6 +241,143 @@ function ConfirmModal({ message, onConfirm, onCancel }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Free Play / Birthday Mode Modal
+// ─────────────────────────────────────────────────────────────────────────────
+type FreePlaySession = { endTime: Date; durationHours: number; label: string } | null;
+
+function FreePlayModal({ onClose, onActivate }: {
+  onClose: () => void;
+  onActivate: (session: NonNullable<FreePlaySession>) => void;
+}) {
+  const [duration, setDuration] = useState<1 | 2>(1);
+  const [label, setLabel] = useState('');
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid rgba(245,158,11,0.35)',
+        borderRadius: 16, padding: 32, maxWidth: 420, width: '90%',
+        boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: '50%',
+            background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <PartyPopper size={22} color="#f59e0b" />
+          </div>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--text)', margin: 0 }}>Free Play Mode</h2>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Birthday packages & unlimited play</p>
+          </div>
+        </div>
+        <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 22, marginTop: 16 }}>
+          <p style={{ fontSize: 13, color: '#fbbf24', lineHeight: 1.6, margin: 0 }}>
+            While active, <strong>all new sessions will be logged as TEST</strong> (revenue = KSH 0). Normal billing resumes automatically when the timer ends.
+          </p>
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Duration</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([1, 2] as const).map(h => (
+              <button key={h} onClick={() => setDuration(h)} style={{
+                flex: 1, padding: '12px', borderRadius: 10, border: `1px solid ${duration === h ? '#f59e0b' : 'var(--border)'}`,
+                background: duration === h ? 'rgba(245,158,11,0.15)' : 'var(--surface2)',
+                color: duration === h ? '#fbbf24' : 'var(--muted)',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+              }}>
+                {h} Hour{h > 1 ? 's' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom: 22 }}>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Label (optional)</label>
+          <input
+            type="text"
+            placeholder="e.g. John's Birthday Party"
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            style={{ ...inputStyle, fontSize: 13 }}
+            maxLength={60}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: '11px', borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--surface2)',
+            color: 'var(--text)', fontSize: 13, cursor: 'pointer',
+          }}>Cancel</button>
+          <button onClick={() => {
+            const endTime = new Date(Date.now() + duration * 60 * 60 * 1000);
+            onActivate({ endTime, durationHours: duration, label: label.trim() || `Free Play (${duration}h)` });
+          }} style={{
+            flex: 2, padding: '11px', borderRadius: 8, border: 'none',
+            background: '#f59e0b', color: '#000', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          }}>
+            🎉 Activate Free Play
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FreePlayBanner({ session, onEnd }: {
+  session: NonNullable<FreePlaySession>;
+  onEnd: () => void;
+}) {
+  const [remaining, setRemaining] = useState('');
+  useEffect(() => {
+    const tick = () => {
+      const ms = session.endTime.getTime() - Date.now();
+      if (ms <= 0) { onEnd(); return; }
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setRemaining(`${h > 0 ? h + 'h ' : ''}${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [session, onEnd]);
+  return (
+    <div style={{
+      background: 'linear-gradient(90deg, rgba(245,158,11,0.22) 0%, rgba(245,158,11,0.09) 100%)',
+      borderBottom: '1px solid rgba(245,158,11,0.45)',
+      padding: '9px 20px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
+      position: 'sticky', top: 0, zIndex: 39,   // sits just below the Header (z-index 40)
+      backdropFilter: 'blur(8px)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <PartyPopper size={16} color="#f59e0b" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', letterSpacing: '0.04em' }}>FREE PLAY ACTIVE</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>· {session.label}</span>
+        <span style={{
+          fontSize: 12, color: '#fbbf24', background: 'rgba(245,158,11,0.14)',
+          padding: '2px 10px', borderRadius: 20, fontWeight: 700,
+        }}>
+          ⏱ {remaining} remaining
+        </span>
+      </div>
+      <button onClick={onEnd} style={{
+        padding: '5px 14px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.45)',
+        background: 'transparent', color: '#f59e0b', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+        transition: 'background 0.15s',
+      }}
+        onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.12)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      >End Early</button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sidebar
 // ─────────────────────────────────────────────────────────────────────────────
 const sidebarItems = [
@@ -247,11 +388,12 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing, onFreePlay }: {
   active: string; onNavigate: (id: string) => void;
   collapsed: boolean; onToggle: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  onFreePlay: () => void;
 }) {
   return (
     <>
@@ -354,6 +496,34 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
             }}
           />
           {!collapsed && (isRefreshing ? "Refreshing..." : "Refresh")}
+        </button>
+        {/* Free Play / Birthday Mode button */}
+        <button
+          onClick={onFreePlay}
+          title={collapsed ? "Free Play Mode" : undefined}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: collapsed ? 0 : 10,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '10px' : '10px 12px',
+            borderRadius: 8,
+            border: '1px solid rgba(245,158,11,0.3)',
+            background: 'rgba(245,158,11,0.08)',
+            color: '#f59e0b',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            width: '100%',
+            whiteSpace: 'nowrap',
+            marginBottom: 4,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.18)'; e.currentTarget.style.borderColor = '#f59e0b'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.08)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.3)'; }}
+        >
+          <PartyPopper size={17} />
+          {!collapsed && "Free Play Mode"}
         </button>
       </aside>
     </>
@@ -575,7 +745,7 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
       const day = subDays(today, 6 - i);
       const ds = startOfDay(day), de = endOfDay(day);
       const dl = logs.filter(l => { const d = parseISO(l.start_time); return d >= ds && d <= de; });
-      return { date: format(day, 'EEE'), Full: dl.filter(l => l.status === 'FULL GAME').length, Error: dl.filter(l => l.status === 'ERROR').length };
+      return { date: format(day, 'EEE'), Full: dl.filter(l => l.status === 'FULL GAME').length, Error: dl.filter(l => l.status === 'ERROR').length, Test: dl.filter(l => l.status === 'TEST').length };
     });
   }, [logs]);
   return (
@@ -590,11 +760,12 @@ function SessionBreakdownChart({ logs }: { logs: GameLog[] }) {
             <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)' }} />
             <Bar dataKey="Full" fill="#10b981" radius={[3, 3, 0, 0]} />
             <Bar dataKey="Error" fill="#ef4444" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Test" fill="#6b7280" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
-        {[['Full', '#10b981'], ['Error', '#ef4444']].map(([l, c]) => (
+        {[['Full', '#10b981'], ['Error', '#ef4444'], ['Test', '#6b7280']].map(([l, c]) => (
           <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: c }} />{l}
           </div>
@@ -613,6 +784,7 @@ function TodayPieChart({ logs }: { logs: GameLog[] }) {
   const data = [
     { name: 'Full', value: dl.filter(l => l.status === 'FULL GAME').length, color: '#10b981' },
     { name: 'Error', value: dl.filter(l => l.status === 'ERROR').length, color: '#ef4444' },
+    { name: 'Test', value: dl.filter(l => l.status === 'TEST').length, color: '#6b7280' },
   ].filter(d => d.value > 0);
   if (data.length === 0) return <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}><p style={{ color: 'var(--muted)', fontSize: 13 }}>No sessions today yet</p></div>;
   return (
@@ -843,9 +1015,10 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
 
   const totals = (rows: GameLog[]) => ({
     sessions: rows.length,
-    revenue: rows.reduce((s, l) => s + l.revenue_ksh, 0),
+    revenue: rows.filter(l => l.status !== 'TEST').reduce((s, l) => s + l.revenue_ksh, 0),
     full: rows.filter(l => l.status === 'FULL GAME').length,
     errors: rows.filter(l => l.status === 'ERROR').length,
+    tests: rows.filter(l => l.status === 'TEST').length,
     playtime: rows.reduce((s, l) => s + l.duration_minutes, 0),
   });
 
@@ -881,6 +1054,7 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
             { label: 'Revenue', value: fmtKSH(overall.revenue), color: '#10b981' },
             { label: 'Full', value: String(overall.full), color: '#10b981' },
             { label: 'Errors', value: String(overall.errors), color: '#ef4444' },
+            ...(overall.tests > 0 ? [{ label: 'Tests', value: String(overall.tests), color: '#6b7280' }] : []),
             { label: 'Playtime', value: `${overall.playtime.toFixed(0)}m`, color: 'var(--muted)' },
           ].map(s => (
             <div key={s.label} style={{ textAlign: 'center' }}>
@@ -913,9 +1087,71 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds }: {
   );
 }
 
-function MachineSessionTable({ logs, allMachineIds, showMachineCol }: {
-  logs: GameLog[]; allMachineIds: string[]; showMachineCol: boolean;
+// Portal-based status dropdown — renders outside any overflow container
+function StatusDropdown({ currentStatus, anchorRect, onSelect, onClose }: {
+  currentStatus: GameLog['status'];
+  anchorRect: DOMRect;
+  onSelect: (s: GameLog['status']) => void;
+  onClose: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const t = setTimeout(() => document.addEventListener('mousedown', handler), 10);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', handler); };
+  }, [onClose]);
+
+  if (typeof document === 'undefined') return null;
+
+  const dropdownStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: anchorRect.bottom + 6,
+    left: anchorRect.left,
+    zIndex: 9999,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    padding: 4,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+    minWidth: 140,
+  };
+
+  return createPortal(
+    <div ref={ref} style={dropdownStyle}>
+      {(['FULL GAME', 'ERROR', 'TEST'] as const).map(s => (
+        <div
+          key={s}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(s); onClose(); }}
+          style={{
+            padding: '8px 12px', cursor: 'pointer', borderRadius: 6,
+            fontSize: 12, color: statusColor(s), fontWeight: 600,
+            background: s === currentStatus ? statusBg(s) : 'transparent',
+            transition: 'background 0.1s',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+          onMouseEnter={e => { if (s !== currentStatus) e.currentTarget.style.background = 'var(--surface2)'; }}
+          onMouseLeave={e => { if (s !== currentStatus) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor(s), flexShrink: 0 }} />
+          {s}
+          {s === currentStatus && <span style={{ marginLeft: 'auto', fontSize: 11 }}>✓</span>}
+        </div>
+      ))}
+    </div>,
+    document.body
+  );
+}
+
+function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChange }: {
+  logs: GameLog[]; allMachineIds: string[]; showMachineCol: boolean;
+  onStatusChange?: (logId: number, newStatus: GameLog['status']) => void;
+}) {
+  const [editingStatus, setEditingStatus] = useState<number | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
   if (logs.length === 0) return (
     <p style={{ padding: '16px', color: 'var(--muted)', fontSize: 13 }}>No sessions.</p>
   );
@@ -948,9 +1184,45 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol }: {
                 )}
                 <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{log.game_name}</td>
                 <td style={tdStyle}>{log.duration_minutes.toFixed(1)} min</td>
-                <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(log.revenue_ksh)}</td>
-                <td style={tdStyle}>
-                  <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
+                <td style={{ ...tdStyle, color: log.status === 'TEST' ? 'var(--muted)' : '#10b981', fontWeight: 600 }}>
+                  {log.status === 'TEST' ? <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{fmtKSH(log.revenue_ksh)}</span> : fmtKSH(log.revenue_ksh)}
+                </td>
+                <td style={{ ...tdStyle, position: 'relative' }}>
+                  {onStatusChange ? (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <span
+                        onClick={(e) => {
+                          if (editingStatus === log.id) {
+                            setEditingStatus(null);
+                            setAnchorRect(null);
+                          } else {
+                            setEditingStatus(log.id);
+                            setAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+                          }
+                        }}
+                        title="Click to change status"
+                        style={{
+                          padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                          background: statusBg(log.status), color: statusColor(log.status),
+                          cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          border: `1px solid ${statusColor(log.status)}30`,
+                        }}
+                      >
+                        {log.status}
+                        <span style={{ opacity: 0.5, fontSize: 9 }}>▼</span>
+                      </span>
+                      {editingStatus === log.id && anchorRect && (
+                        <StatusDropdown
+                          currentStatus={log.status}
+                          anchorRect={anchorRect}
+                          onSelect={(s) => { onStatusChange(log.id, s); }}
+                          onClose={() => { setEditingStatus(null); setAnchorRect(null); }}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <span style={{ padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: statusBg(log.status), color: statusColor(log.status) }}>{log.status}</span>
+                  )}
                 </td>
               </tr>
             );
@@ -961,7 +1233,7 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol }: {
   );
 }
 
-function ActivityView({ logs }: { logs: GameLog[] }) {
+function ActivityView({ logs, setLogs }: { logs: GameLog[]; setLogs: (fn: (prev: GameLog[]) => GameLog[]) => void }) {
   const [filter, setFilter] = useState<ActivityFilter>('today');
   const [customDate, setCustomDate] = useState(todayStr());
   const [machineFilter, setMachineFilter] = useState<string>('all');
@@ -993,6 +1265,51 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
     filtered.forEach(l => { const a = map.get(l.date) ?? []; a.push(l); map.set(l.date, a); });
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
+
+  const handleStatusChange = async (logId: number, newStatus: GameLog['status']) => {
+    // Optimistic update
+    setLogs(prev => prev.map(l => {
+      if (l.id !== logId) return l;
+      return { ...l, status: newStatus, revenue_ksh: newStatus === 'TEST' ? 0 : l.revenue_ksh };
+    }));
+    const updatePayload: Record<string, unknown> = { status: newStatus };
+    if (newStatus === 'TEST') updatePayload.revenue_ksh = 0;
+    const { error } = await supabase
+      .from('game_logs')
+      .update(updatePayload)
+      .eq('id', logId);
+    if (error) {
+      console.error('Status update failed:', error);
+      // Re-fetch to revert
+      const { data } = await supabase.from('game_logs').select('*').eq('id', logId).single();
+      if (data) setLogs(prev => prev.map(l => l.id === logId ? data as GameLog : l));
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = ['Date', 'Time', 'Day of Week', 'Machine ID', 'Game Name', 'Duration (min)', 'Status', 'Is Test', 'Revenue (KSH)', 'Session ID'];
+    const rows = filtered.map(l => {
+      const dt = parseISO(l.start_time);
+      return [
+        format(dt, 'yyyy-MM-dd'),
+        format(dt, 'HH:mm:ss'),
+        format(dt, 'EEEE'),
+        l.computer_id,
+        l.game_name,
+        l.duration_minutes.toFixed(1),
+        l.status,
+        l.status === 'TEST' ? 'Yes' : 'No',
+        l.revenue_ksh.toFixed(2),
+        l.id,
+      ];
+    });
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `arcade-sessions-${filter === 'custom' ? customDate : filter}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
 
   const filterBtnStyle = (active: boolean): React.CSSProperties => ({
     padding: '6px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -1030,6 +1347,21 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
             <input type="date" value={customDate} max={todayStr()} onChange={e => setCustomDate(e.target.value)}
               style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--text)', fontSize: 13, cursor: 'pointer', outline: 'none' }} />
           )}
+          {/* Export CSV */}
+          <button
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)',
+              background: 'var(--surface2)', color: filtered.length === 0 ? 'var(--muted)' : 'var(--text)',
+              fontSize: 12, fontWeight: 600, cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s', opacity: filtered.length === 0 ? 0.5 : 1,
+            }}
+            title="Export sessions to CSV"
+          >
+            <Download size={13} /> Export CSV
+          </button>
           {/* Machine tabs — only shown when >1 machine exists */}
           {allMachineIds.length > 1 && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', padding: 4, borderRadius: 24, marginLeft: 'auto', overflowX: 'auto', flexWrap: 'nowrap', maxWidth: '100%', }}>
@@ -1064,7 +1396,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
                         · {machineLogs.length} session{machineLogs.length !== 1 ? 's' : ''} · {fmtKSH(machineLogs.reduce((s, l) => s + l.revenue_ksh, 0))}
                       </span>
                     </div>
-                    <MachineSessionTable logs={machineLogs} allMachineIds={allMachineIds} showMachineCol={false} />
+                    <MachineSessionTable logs={machineLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} />
                   </div>
                 );
               })}
@@ -1072,7 +1404,7 @@ function ActivityView({ logs }: { logs: GameLog[] }) {
           ) : (
             /* Single machine view — clean table, no machine column needed */
             <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-              <MachineSessionTable logs={dayLogs} allMachineIds={allMachineIds} showMachineCol={false} />
+              <MachineSessionTable logs={dayLogs} allMachineIds={allMachineIds} showMachineCol={false} onStatusChange={handleStatusChange} />
             </div>
           )}
         </div>
@@ -1104,7 +1436,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
       const p = map.get(l.game_name) ?? { sessions: 0, revenue: 0, full: 0, errors: 0, total_minutes: 0 };
       map.set(l.game_name, {
         sessions: p.sessions + 1,
-        revenue: p.revenue + l.revenue_ksh,
+        revenue: p.revenue + (l.status !== 'TEST' ? l.revenue_ksh : 0),
         full: p.full + (l.status === 'FULL GAME' ? 1 : 0),
         errors: p.errors + (l.status === 'ERROR' ? 1 : 0),
         total_minutes: p.total_minutes + l.duration_minutes,
@@ -1721,6 +2053,10 @@ export default function Dashboard() {
   const [storedPin, setStoredPin] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(true);
 
+  // ── FREE PLAY MODE ────────────────────────────────────────────────────────
+  const [freePlaySession, setFreePlaySession] = useState<FreePlaySession>(null);
+  const [showFreePlayModal, setShowFreePlayModal] = useState(false);
+
   // ── DATA HOOKS (must be called unconditionally) ────────────────────────────
   const { logs, setLogs, loading } = useGameLogs(1000);
   const { machines, setMachines, refetch: refetchMachines } = useMachineStatus();
@@ -1870,7 +2206,7 @@ export default function Dashboard() {
 
   const todayRevenue = useMemo(() => {
     const today = todayStr();
-    return logs.filter(l => l.date === today).reduce((s, l) => s + l.revenue_ksh, 0);
+    return logs.filter(l => l.date === today && l.status !== 'TEST').reduce((s, l) => s + l.revenue_ksh, 0);
   }, [logs]);
 
   if (pinLoading) {
@@ -2033,10 +2369,14 @@ export default function Dashboard() {
           onToggle={() => setSidebarCollapsed(p => !p)}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
+          onFreePlay={() => setShowFreePlayModal(true)}
         />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
+          {freePlaySession && (
+            <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
+          )}
           <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
             {activeTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -2057,7 +2397,7 @@ export default function Dashboard() {
                 <DailySummary logs={logs} />
               </div>
             )}
-            {activeTab === 'activity' && <ActivityView logs={logs} />}
+            {activeTab === 'activity' && <ActivityView logs={logs} setLogs={setLogs} />}
             {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
             {activeTab === 'settings' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} />)}
           </main>
@@ -2098,6 +2438,15 @@ export default function Dashboard() {
           </footer>
         </div>
       </div>
+      {showFreePlayModal && (
+        <FreePlayModal
+          onClose={() => setShowFreePlayModal(false)}
+          onActivate={(session) => {
+            setFreePlaySession(session);
+            setShowFreePlayModal(false);
+          }}
+        />
+      )}
     </>
   );
 }

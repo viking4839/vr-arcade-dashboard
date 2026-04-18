@@ -1396,6 +1396,133 @@ function DayTotalBanner({ logs, date, machineFilter, allMachineIds, effectiveSta
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PIN Confirm Modal — required before any status change
+// ─────────────────────────────────────────────────────────────────────────────
+function PinConfirmModal({ session, onConfirm, onCancel, targetStatus, logInfo }: {
+  session: ActiveSession;
+  onConfirm: () => void;
+  onCancel: () => void;
+  targetStatus: GameLog['status'];
+  logInfo: { game: string; from: GameLog['status'] };
+}) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pin.length !== 4) return;
+    setChecking(true);
+    // Fetch this user's hash from DB and verify
+    const { data } = await supabase
+      .from('arcade_users')
+      .select('pin_hash')
+      .eq('id', session.userId)
+      .single();
+    setChecking(false);
+    if (!data) { setError('Could not verify. Try again.'); return; }
+    const ok = await verifyPin(pin, data.pin_hash);
+    if (ok) {
+      onConfirm();
+    } else {
+      setError('Incorrect PIN.');
+      setPin('');
+    }
+  };
+
+  const statusLabel = (s: GameLog['status']) =>
+    s === 'FULL GAME' ? { label: 'Full Game', color: '#10b981' }
+    : s === 'ERROR'    ? { label: 'Error',     color: '#ef4444' }
+    :                    { label: 'Test',       color: '#6b7280' };
+
+  const from = statusLabel(logInfo.from);
+  const to   = statusLabel(targetStatus);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+    }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 18, padding: 30, maxWidth: 360, width: '92%',
+        boxShadow: '0 24px 48px rgba(0,0,0,0.55)',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <LockKeyhole size={20} color="var(--accent)" />
+          </div>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>Confirm Status Change</p>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>{session.name} · Enter your PIN to proceed</p>
+          </div>
+        </div>
+
+        {/* Change summary */}
+        <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {logInfo.game}
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${from.color}20`, color: from.color }}>{from.label}</span>
+            <span style={{ fontSize: 16, color: 'var(--muted)' }}>→</span>
+            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: `${to.color}20`, color: to.color }}>{to.label}</span>
+          </div>
+          {(targetStatus === 'TEST' || targetStatus === 'ERROR') && (
+            <p style={{ fontSize: 11, color: '#f59e0b', marginTop: 8 }}>
+              ⚠ Revenue for this session will show as KSH 0
+            </p>
+          )}
+          {targetStatus === 'FULL GAME' && logInfo.from !== 'FULL GAME' && (
+            <p style={{ fontSize: 11, color: '#10b981', marginTop: 8 }}>
+              ✓ Full game revenue will be restored
+            </p>
+          )}
+        </div>
+
+        {/* PIN input */}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={pin}
+            onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(''); }}
+            placeholder="••••"
+            autoFocus
+            style={{
+              width: '100%', padding: '14px',
+              background: 'var(--surface2)',
+              border: `1px solid ${error ? '#ef4444' : 'var(--border)'}`,
+              borderRadius: 12, color: 'var(--text)',
+              fontSize: 28, textAlign: 'center',
+              letterSpacing: 12, fontFamily: 'monospace',
+              outline: 'none', transition: 'border-color 0.2s',
+            }}
+          />
+          {error && <p style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', margin: 0 }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={onCancel} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pin.length !== 4 || checking}
+              style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: pin.length === 4 ? 'var(--accent)' : 'var(--surface2)', color: pin.length === 4 ? '#fff' : 'var(--muted)', fontSize: 13, fontWeight: 600, cursor: pin.length === 4 ? 'pointer' : 'not-allowed', transition: 'all 0.15s' }}
+            >
+              {checking ? 'Verifying…' : 'Confirm Change'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
 // Portal-based status dropdown — renders outside any overflow container
 function StatusDropdown({ currentStatus, anchorRect, onSelect, onClose }: {
   currentStatus: GameLog['status'];
@@ -1549,13 +1676,14 @@ function MachineSessionTable({ logs, allMachineIds, showMachineCol, onStatusChan
   );
 }
 
-function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrides, effectiveStatus, effectiveRevenue }: {
+function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrides, effectiveStatus, effectiveRevenue, session }: {
   logs: GameLog[];
   freePlaySession: FreePlaySession;
   statusOverrides: Map<number, GameLog['status']>;
   setStatusOverrides: React.Dispatch<React.SetStateAction<Map<number, GameLog['status']>>>;
   effectiveStatus: (l: GameLog) => GameLog['status'];
   effectiveRevenue: (l: GameLog) => number;
+  session: ActiveSession | null;
 }) {
   const [filter, setFilter] = useState<ActivityFilter>('today');
   const [customDate, setCustomDate] = useState(todayStr());
@@ -1601,7 +1729,19 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
     prevFreePlay.current = freePlaySession;
   }, [freePlaySession, logs, setStatusOverrides]);
 
+  // ── PIN-gated status change ─────────────────────────────────────────────
+  const [pendingChange, setPendingChange] = useState<{ logId: number; newStatus: GameLog['status'] } | null>(null);
+
   const handleStatusChange = (logId: number, newStatus: GameLog['status']) => {
+    // Same status — no-op
+    const log = logs.find(l => l.id === logId);
+    const current = log ? (statusOverrides.get(logId) ?? log.status) : newStatus;
+    if (newStatus === current) return;
+    // Always require PIN confirmation before applying any change
+    setPendingChange({ logId, newStatus });
+  };
+
+  const applyStatusChange = (logId: number, newStatus: GameLog['status']) => {
     setStatusOverrides(prev => {
       const next = new Map(prev);
       const original = logs.find(l => l.id === logId)?.status;
@@ -1612,6 +1752,7 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
       }
       return next;
     });
+    setPendingChange(null);
   };
 
   const allMachineIds = useMemo(() =>
@@ -1767,6 +1908,22 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
           )}
         </div>
       ))}
+
+      {/* PIN confirmation modal — shown before any status change is applied */}
+      {pendingChange && session && (() => {
+        const log = logs.find(l => l.id === pendingChange.logId);
+        if (!log) return null;
+        const fromStatus = statusOverrides.get(log.id) ?? log.status;
+        return (
+          <PinConfirmModal
+            session={session}
+            targetStatus={pendingChange.newStatus}
+            logInfo={{ game: log.game_name, from: fromStatus }}
+            onConfirm={() => applyStatusChange(pendingChange.logId, pendingChange.newStatus)}
+            onCancel={() => setPendingChange(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -2650,7 +2807,12 @@ export default function Dashboard() {
 
   const getEffectiveRevenue = useCallback((log: GameLog): number => {
     const s = statusOverrides.get(log.id) ?? log.status;
-    return s === 'TEST' ? 0 : log.revenue_ksh;
+    // TEST → always 0
+    if (s === 'TEST') return 0;
+    // ERROR → always 0 (errors never earn revenue regardless of original status)
+    if (s === 'ERROR') return 0;
+    // FULL GAME → use the revenue_ksh the PS script logged (already the correct amount)
+    return log.revenue_ksh;
   }, [statusOverrides]);
 
   // ── FREE PLAY MODE ────────────────────────────────────────────────────────
@@ -2897,7 +3059,7 @@ export default function Dashboard() {
                 <DailySummary logs={logs} />
               </div>
             )}
-            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} />}
+            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
             {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
             {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
           </main>
@@ -2917,7 +3079,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>© {new Date().getFullYear()} VR Arcade</span>
               <span style={{ opacity: 0.5 }}>|</span>
-              <span>For Help Contact :           Email <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span>📩</span>
+              <span>For Help Contact   Email<span style={{ color: 'var(--accent)', fontWeight: 500 }}>  📩</span></span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

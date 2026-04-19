@@ -3663,11 +3663,9 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     .filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString())
     .reduce((sum, s) => sum + s.amount_paid, 0);
 
-  if (view === 'checkin') {
-    return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
-  }
-
+  
   const displayed = useMemo(() => {
+    if (view === 'checkin') return [];   // placeholder, won't be used
     const base = tab === 'active' ? active : sessions.filter(s =>
       new Date(s.check_in_time).toDateString() === new Date().toDateString()
     );
@@ -3679,7 +3677,11 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       s.notes.toLowerCase().includes(q) ||
       String(s.age).includes(q)
     );
-  }, [tab, active, sessions, liveSearch]);
+  }, [view, tab, active, sessions, liveSearch]);   // add `view` to dependencies
+
+   if (view === 'checkin') {
+    return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
+  }
 
   return (
     <>

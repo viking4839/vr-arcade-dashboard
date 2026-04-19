@@ -2990,6 +2990,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
     return activeSessions.find(s => s.child_name.toLowerCase() === trimmed) ?? null;
   }, [childName, activeSessions]);
 
+  const isGuardianRequired = useMemo(() => {
+    const ageNum = parseInt(age, 10);
+    return !isNaN(ageNum) && ageNum < 18;
+  }, [age]);
   const labelStyle: React.CSSProperties = {
     display: 'block', fontSize: 13, color: '#9ca3af',
     marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
@@ -3021,10 +3025,18 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
 
   const handleSubmit = async () => {
     setError('');
-    if (!childName.trim()) { setError("Child's name is required."); return; }
-    if (nameConflict) { setError(`A child named "${nameConflict.child_name}" is already active. Please change the name to avoid confusion.`); return; }
-    if (!guardianName.trim()) { setError("Guardian name is required."); return; }
-    if (!age || isNaN(Number(age)) || Number(age) < 1 || Number(age) > 17) { setError('Please enter a valid age (1–17).'); return; }
+    if (!childName.trim()) { setError("Name is required."); return; }
+    if (nameConflict) { setError(`A person named "${nameConflict.child_name}" is already active. Please change the name.`); return; }
+
+    const ageNum = parseInt(age, 10);
+    if (isNaN(ageNum) || ageNum < 1 || ageNum > 99) { setError('Please enter a valid age (1–99).'); return; }
+
+    // Guardian name is required only if under 18
+    if (isGuardianRequired && !guardianName.trim()) {
+      setError("Guardian's name is required for children under 18.");
+      return;
+    }
+
     const dur = getSelectedDuration();
     if (!dur) { setError('Please select a valid duration.'); return; }
     if (dur.price <= 0 && durationOption !== 'custom') { setError('Invalid price.'); return; }
@@ -3038,7 +3050,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
       child_name: childName.trim(),
       guardian_name: guardianName.trim(),
       guardian_phone: guardianPhone.trim(),
-      age: Number(age),
+      age: ageNum,
       check_in_time: checkInTime,
       duration_minutes: dur.minutes,
       amount_paid: dur.price,
@@ -3050,7 +3062,6 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
     if (err) { setError('Could not save. Please try again.'); return; }
     onDone();
   };
-
   return (
     <div style={{ minHeight: '100vh', background: '#0d0f14', padding: '0 0 40px' }}>
       {/* Header (unchanged) */}
@@ -3067,10 +3078,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
       <div style={{ padding: '24px 20px', maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Child Information (unchanged) */}
         <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Child Information</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Client Information</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={labelStyle}>Child's Name *</label>
+              <label style={labelStyle}>Client's Name *</label>
               <input type="text" value={childName} onChange={e => setChildName(e.target.value)}
                 placeholder="e.g. Jamie Mwangi" autoFocus
                 style={{ ...inputStyle, borderColor: nameConflict ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)' }} />
@@ -3090,22 +3101,25 @@ function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void;
             <div>
               <label style={labelStyle}>Age *</label>
               <input type="number" value={age} onChange={e => setAge(e.target.value)}
-                placeholder="e.g. 8" min="1" max="17" inputMode="numeric" style={{ ...inputStyle, width: 120 }} />
+                placeholder="e.g. 8 (or 25 for adults)" min="1" max="99" inputMode="numeric" style={{ ...inputStyle, width: 120 }} />
             </div>
           </div>
         </div>
 
-        {/* Guardian Information (unchanged) */}
+        {/* Guardian Information (optional for adults) */}
         <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
           <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Guardian Information</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={labelStyle}>Guardian's Name *</label>
+              <label style={labelStyle}>
+                Guardian's Name {!isGuardianRequired && <span style={{ fontWeight: 'normal', fontSize: 11, color: '#6b7280' }}>(optional for adults)</span>}
+                {isGuardianRequired && <span style={{ color: '#ef4444' }}> *</span>}
+              </label>
               <input type="text" value={guardianName} onChange={e => setGuardianName(e.target.value)}
-                placeholder="e.g. Mary Wanjiku" style={inputStyle} />
+                placeholder={isGuardianRequired ? "e.g. Mary Wanjiku" : "Optional for adults"} style={inputStyle} />
             </div>
             <div>
-              <label style={labelStyle}>Phone Number</label>
+              <label style={labelStyle}>Phone Number (optional)</label>
               <input type="tel" value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)}
                 placeholder="e.g. 0712 345 678" inputMode="tel" style={inputStyle} />
             </div>
@@ -3663,7 +3677,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     .filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString())
     .reduce((sum, s) => sum + s.amount_paid, 0);
 
-  
+
   const displayed = useMemo(() => {
     if (view === 'checkin') return [];   // placeholder, won't be used
     const base = tab === 'active' ? active : sessions.filter(s =>
@@ -3679,7 +3693,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     );
   }, [view, tab, active, sessions, liveSearch]);   // add `view` to dependencies
 
-   if (view === 'checkin') {
+  if (view === 'checkin') {
     return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
   }
 
@@ -3855,7 +3869,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
           >
-            <UserPlus size={20} /> Check In a Child
+            <UserPlus size={20} /> Check In a Client
           </button>
         </div>
       </div>}

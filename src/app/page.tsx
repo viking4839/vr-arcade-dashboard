@@ -3670,6 +3670,17 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     fetchSessions();
   };
 
+  const [currentTime, setCurrentTime] = useState('');
+
+  useEffect(() => {
+    const updateTime = () => {
+      setCurrentTime(new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const active = sessions.filter(s => s.status === 'active');
   const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
   const urgentSessions = active.filter(s => { const { urgent, overdue } = timeUntilExit(s.exit_time); return urgent && !overdue; });
@@ -3798,7 +3809,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
           ))}
 
           {/* Tab filter + search */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               {(['active', 'all'] as const).map(t => (
                 <button key={t} onClick={() => { setTab(t); setLiveSearch(''); }}
@@ -3807,6 +3818,12 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                 </button>
               ))}
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#1c1f29', padding: '6px 14px', borderRadius: 20, border: '1px solid rgba(239,68,68,0.6)' }}>
+              <Clock size={14} color="#ef4444" />
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', fontFamily: 'monospace', letterSpacing: '0.5px' }}>{currentTime}</span>
+            </div>
+
+
             {/* Search bar */}
             <div style={{ position: 'relative' }}>
               <input

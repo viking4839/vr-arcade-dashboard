@@ -18,7 +18,7 @@ import {
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
-  PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield,
+  PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell,
 } from 'lucide-react';
 
 
@@ -264,10 +264,11 @@ function ConfirmModal({ message, onConfirm, onCancel }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Login Screen — pick name → enter PIN
 // ─────────────────────────────────────────────────────────────────────────────
-function LoginScreen({ users, onLogin, onFirstSetup }: {
+function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
   users: ArcadeUser[];
   onLogin: (user: ArcadeUser) => void;
   onFirstSetup: () => void;
+  onBack: () => void;
 }) {
   const [step, setStep] = useState<'pick' | 'pin' | 'register'>('pick');
   const [selectedUser, setSelectedUser] = useState<ArcadeUser | null>(null);
@@ -334,7 +335,13 @@ function LoginScreen({ users, onLogin, onFirstSetup }: {
     body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
     @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
     @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-    .auth-card { animation: fadeIn 0.2s ease; }
+    @keyframes float1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(30px,-40px) scale(1.08)} 66%{transform:translate(-20px,20px) scale(0.95)} }
+    @keyframes float2 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(-40px,30px) scale(1.1)} 66%{transform:translate(25px,-25px) scale(0.92)} }
+    @keyframes float3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(20px,35px) scale(1.06)} }
+    .auth-card { animation: fadeIn 0.25s ease; }
+    .orb1 { position:absolute; width:280px; height:280px; border-radius:50%; background:rgba(99,102,241,0.12); animation:float1 12s ease-in-out infinite; top:-60px; left:-80px; pointer-events:none; }
+    .orb2 { position:absolute; width:200px; height:200px; border-radius:50%; background:rgba(16,185,129,0.07); animation:float2 16s ease-in-out infinite; bottom:-40px; right:-50px; pointer-events:none; }
+    .orb3 { position:absolute; width:140px; height:140px; border-radius:50%; background:rgba(99,102,241,0.06); animation:float3 10s ease-in-out infinite; top:40%; right:8%; pointer-events:none; }
     .user-btn:hover { background: rgba(99,102,241,0.12) !important; border-color: rgba(99,102,241,0.4) !important; }
     .user-btn:hover .user-btn-name { color: #a5b4fc !important; }
   `;
@@ -343,11 +350,12 @@ function LoginScreen({ users, onLogin, onFirstSetup }: {
     <>
       <style>{sharedStyles}</style>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
+        <div className="orb1" /><div className="orb2" /><div className="orb3" />
         <div className="auth-card" style={{
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 20, padding: 36, width: 380, maxWidth: '92%',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+          boxShadow: '0 24px 48px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1,
         }}>
           {children}
         </div>
@@ -505,6 +513,9 @@ function LoginScreen({ users, onLogin, onFirstSetup }: {
           </button>
         ))}
       </div>
+      <button type="button" onClick={onBack} style={{ marginTop: 8, padding: '10px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <ChevronLeft size={14} /> Back to Home
+      </button>
     </div>
   );
 }
@@ -608,7 +619,7 @@ function FreePlayBanner({ session, onEnd }: {
       const h = Math.floor(ms / 3600000);
       const m = Math.floor((ms % 3600000) / 60000);
       const s = Math.floor((ms % 60000) / 1000);
-      setRemaining(`${h > 0 ? h + 'h ' : ''}${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`);
+      setRemaining(`${h > 0 ? h + 'h ' : ''}${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`);
     };
     tick();
     const t = setInterval(tick, 1000);
@@ -657,7 +668,7 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing, onFreePlay, session, onLogout }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefreshing, onFreePlay, session, onLogout, onBackToLanding }: {
   active: string; onNavigate: (id: string) => void;
   collapsed: boolean; onToggle: () => void;
   onRefresh: () => void;
@@ -665,6 +676,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
   onFreePlay: () => void;
   session: ActiveSession | null;
   onLogout: () => void;
+  onBackToLanding: () => void;
 }) {
   return (
     <>
@@ -811,6 +823,26 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
         >
           <PartyPopper size={17} />
           {!collapsed && "Free Play Mode"}
+        </button>
+        {/* Back to landing */}
+        <button
+          onClick={onBackToLanding}
+          title={collapsed ? "Home" : undefined}
+          style={{
+            display: 'flex', alignItems: 'center',
+            gap: collapsed ? 0 : 10,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '10px' : '10px 12px',
+            borderRadius: 8, border: 'none',
+            background: 'transparent', color: 'var(--muted)',
+            fontSize: 13, fontWeight: 500, cursor: 'pointer',
+            transition: 'all 0.15s', width: '100%', whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; }}
+        >
+          <ChevronLeft size={17} />
+          {!collapsed && "Home"}
         </button>
         {/* Logout button */}
         <button
@@ -1433,11 +1465,11 @@ function PinConfirmModal({ session, onConfirm, onCancel, targetStatus, logInfo }
 
   const statusLabel = (s: GameLog['status']) =>
     s === 'FULL GAME' ? { label: 'Full Game', color: '#10b981' }
-    : s === 'ERROR'    ? { label: 'Error',     color: '#ef4444' }
-    :                    { label: 'Test',       color: '#6b7280' };
+      : s === 'ERROR' ? { label: 'Error', color: '#ef4444' }
+        : { label: 'Test', color: '#6b7280' };
 
   const from = statusLabel(logInfo.from);
-  const to   = statusLabel(targetStatus);
+  const to = statusLabel(targetStatus);
 
   return (
     <div style={{
@@ -1695,22 +1727,14 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
     if (!freePlaySession) return;
     const now = Date.now();
     if (freePlaySession.endTime.getTime() <= now) return;
-    const freePlayStart = freePlaySession.endTime.getTime() - freePlaySession.durationHours * 3600000;
+    const start = freePlaySession.endTime.getTime() - freePlaySession.durationHours * 3600000;
     logs.forEach(l => {
-      if (!knownLogIds.current.has(l.id)) {
-        knownLogIds.current.add(l.id);
-        const logTime = parseISO(l.start_time).getTime();
-        if (logTime >= freePlayStart) {
-          setStatusOverrides(prev => {
-            if (prev.has(l.id)) return prev;
-            const next = new Map(prev);
-            next.set(l.id, 'TEST');
-            return next;
-          });
-        }
+      const logTime = parseISO(l.start_time).getTime();
+      if (logTime >= start && !statusOverrides.has(l.id)) {
+        setStatusOverrides(prev => new Map(prev).set(l.id, 'TEST'));
       }
     });
-  }, [logs, freePlaySession, setStatusOverrides]);
+  }, [logs, freePlaySession]);
 
   // When free play ends, clear auto-TEST overrides (keep manually set ones)
   const prevFreePlay = useRef<FreePlaySession>(null);
@@ -2039,7 +2063,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)' }}>
-                {['#', 'Game', 'Sessions', 'Revenue', 'Full %', 'Avg Duration', 'Rev/Session'].map(h => (
+                {['#', 'Game', 'Full Games', 'Revenue', 'Full %', 'Avg Duration', 'Rev/Session'].map(h => (
                   <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -2060,7 +2084,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
                         <div style={{ height: '100%', width: `${revenueShare}%`, background: 'var(--accent)', borderRadius: 2 }} />
                       </div>
                     </td>
-                    <td style={tdStyle}>{g.sessions}</td>
+                    <td style={tdStyle}>{g.full}</td>
                     <td style={{ ...tdStyle, color: '#10b981', fontWeight: 600 }}>{fmtKSH(g.revenue)}</td>
                     <td style={tdStyle}>
                       <span style={{ color: g.completion_rate >= 70 ? '#10b981' : g.completion_rate >= 40 ? '#f59e0b' : '#ef4444' }}>
@@ -2068,7 +2092,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
                       </span>
                     </td>
                     <td style={tdStyle}>{g.avg_duration.toFixed(1)} min</td>
-                    <td style={{ ...tdStyle, color: 'var(--text)' }}>{fmtKSH(g.sessions > 0 ? g.revenue / g.sessions : 0)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text)' }}>{fmtKSH(g.full > 0 ? g.revenue / g.full : 0)}</td>
                   </tr>
                 );
               })}
@@ -2787,10 +2811,1064 @@ function SettingsView({
 }
 
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Landing Screen — choose VR Arcade or Jump Zone
+// ─────────────────────────────────────────────────────────────────────────────
+function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline: () => void }) {
+  return (
+    <>
+      <style>{`
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root { --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1; }
+        body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+        @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(22px,-28px)} }
+        @keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-18px,22px)} }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .land-card { transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; cursor: pointer; animation: fadeUp 0.3s ease both; }
+        .land-card:hover { transform: translateY(-4px); }
+        .land-card-vr:hover { box-shadow: 0 16px 48px rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.5) !important; }
+        .land-card-tr:hover { box-shadow: 0 16px 48px rgba(16,185,129,0.2); border-color: rgba(16,185,129,0.4) !important; }
+      `}</style>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', position: 'relative', overflow: 'hidden' }}>
+        {/* Ambient orbs */}
+        <div style={{ position: 'absolute', width: 340, height: 340, borderRadius: '50%', background: 'rgba(99,102,241,0.07)', top: -80, left: -80, animation: 'float1 14s ease-in-out infinite', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', width: 240, height: 240, borderRadius: '50%', background: 'rgba(16,185,129,0.06)', bottom: -60, right: -60, animation: 'float2 18s ease-in-out infinite', pointerEvents: 'none' }} />
+
+        {/* Logo / Title */}
+        <div style={{ textAlign: 'center', marginBottom: 48, position: 'relative', zIndex: 1 }}>
+          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 800, color: '#f0f2f8', marginBottom: 8, letterSpacing: '-0.5px' }}>
+            Xtreme Zone
+          </h1>
+          <p style={{ fontSize: 15, color: '#6b7280' }}>Select your section to continue</p>
+        </div>
+
+        {/* Two cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18, width: '100%', maxWidth: 580, position: 'relative', zIndex: 1 }}>
+
+          {/* VR Arcade card */}
+          <div
+            className="land-card land-card-vr"
+            onClick={onVR}
+            style={{ background: '#151820', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.05s' }}
+          >
+            {/* Icon */}
+            <div style={{ width: 60, height: 60, borderRadius: 16, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </div>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>VR Xtreme</h2>
+            <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
+              Supervisor dashboard — track machines, revenue, and game sessions in real time.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1' }} />
+              <span style={{ fontSize: 13, color: '#818cf8', fontWeight: 600 }}>Requires PIN login</span>
+            </div>
+          </div>
+
+          {/* Trampoline card */}
+          <div
+            className="land-card land-card-tr"
+            onClick={onTrampoline}
+            style={{ background: '#151820', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.12s' }}
+          >
+            {/* Icon */}
+            <div style={{ width: 60, height: 60, borderRadius: 16, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+              </svg>
+            </div>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Zone</h2>
+            <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
+              Trampoline check-in — record kids entering, track jump time, and get exit alerts.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+              <span style={{ fontSize: 13, color: '#34d399', fontWeight: 600 }}>Open access</span>
+            </div>
+          </div>
+        </div>
+
+        <p style={{ marginTop: 40, fontSize: 12, color: '#374151', position: 'relative', zIndex: 1 }}>
+          Xtreme Zone · Staff Portal
+        </p>
+      </div>
+    </>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRAMPOLINE PARK — Jump Zone
+// ─────────────────────────────────────────────────────────────────────────────
+interface JumperSession {
+  id: number;
+  child_name: string;
+  guardian_name: string;
+  guardian_phone: string;
+  age: number;
+  check_in_time: string;
+  duration_minutes: number;
+  amount_paid: number;
+  exit_time: string;        // computed: check_in + duration
+  status: 'active' | 'exited' | 'overdue';
+  notes: string;
+  created_at: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function timeUntilExit(exitTime: string): { minutes: number; label: string; urgent: boolean; overdue: boolean } {
+  const diff = new Date(exitTime).getTime() - Date.now();
+  const minutes = Math.floor(diff / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  const overdue = diff < 0;
+  const urgent = !overdue && diff < 5 * 60 * 1000;
+  const absMins = Math.abs(minutes);
+  const absSecs = Math.abs(seconds);
+  const label = overdue
+    ? `${absMins}m ${absSecs}s overdue`
+    : `${minutes}m ${absSecs}s left`;
+  return { minutes, label, urgent, overdue };
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+
+
+const DURATION_OPTIONS = [
+  { label: '30 min', value: 30, price: 200 },
+  { label: '1 hour', value: 60, price: 350 },
+  { label: '1.5 hrs', value: 90, price: 500 },
+  { label: '2 hours', value: 120, price: 650 },
+];
+
+// ─── Timer display (live countdown) ──────────────────────────────────────────
+function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (status !== 'active') return;
+    const t = setInterval(() => setTick(p => p + 1), 1000);
+    return () => clearInterval(t);
+  }, [status]);
+
+  if (status === 'exited') return <span style={{ color: '#6b7280', fontSize: 13 }}>Exited</span>;
+  const { label, urgent, overdue } = timeUntilExit(exitTime);
+  return (
+    <span style={{
+      fontSize: 13, fontWeight: 700,
+      color: overdue ? '#ef4444' : urgent ? '#f59e0b' : '#10b981',
+    }}>
+      {overdue && '⚠ '}{label}
+    </span>
+  );
+}
+
+// ─── Check-in form ────────────────────────────────────────────────────────────
+function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void; onCancel: () => void; activeSessions: JumperSession[] }) {
+  const [childName, setChildName] = useState('');
+  const [guardianName, setGuardianName] = useState('');
+  const [guardianPhone, setGuardianPhone] = useState('');
+  const [age, setAge] = useState('');
+  const [durationOption, setDurationOption] = useState<'1h' | '2h' | 'custom' | 'unlimited'>('1h');
+  const [customMinutesVal, setCustomMinutesVal] = useState('');
+  const [customPriceVal, setCustomPriceVal] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Check if the entered child name matches an already-active session
+  const nameConflict = useMemo(() => {
+    const trimmed = childName.trim().toLowerCase();
+    if (!trimmed) return null;
+    return activeSessions.find(s => s.child_name.toLowerCase() === trimmed) ?? null;
+  }, [childName, activeSessions]);
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block', fontSize: 13, color: '#9ca3af',
+    marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+  };
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '14px 16px', fontSize: 16,
+    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 12, color: '#f0f2f8', outline: 'none',
+    boxSizing: 'border-box',
+  };
+
+  const isWeekend = () => {
+    const day = new Date().getDay();
+    return day === 0 || day === 6;
+  };
+  const price1h = isWeekend() ? 1250 : 1000;
+  const price2h = isWeekend() ? 2500 : 2000;
+
+  const getSelectedDuration = () => {
+    if (durationOption === '1h') return { minutes: 60, price: price1h };
+    if (durationOption === '2h') return { minutes: 120, price: price2h };
+    if (durationOption === 'unlimited') return { minutes: 720, price: 3000 };
+    // custom
+    const mins = parseInt(customMinutesVal, 10);
+    const price = parseFloat(customPriceVal);
+    if (isNaN(mins) || mins <= 0) return null;
+    return { minutes: mins, price: isNaN(price) ? 0 : price };
+  };
+
+  const handleSubmit = async () => {
+    setError('');
+    if (!childName.trim()) { setError("Child's name is required."); return; }
+    if (nameConflict) { setError(`A child named "${nameConflict.child_name}" is already active. Please change the name to avoid confusion.`); return; }
+    if (!guardianName.trim()) { setError("Guardian name is required."); return; }
+    if (!age || isNaN(Number(age)) || Number(age) < 1 || Number(age) > 17) { setError('Please enter a valid age (1–17).'); return; }
+    const dur = getSelectedDuration();
+    if (!dur) { setError('Please select a valid duration.'); return; }
+    if (dur.price <= 0 && durationOption !== 'custom') { setError('Invalid price.'); return; }
+    if (durationOption === 'custom' && (dur.price <= 0 || dur.minutes <= 0)) { setError('Enter valid minutes and price.'); return; }
+
+    setSaving(true);
+    const checkInTime = new Date().toISOString();
+    const exitTime = new Date(Date.now() + dur.minutes * 60000).toISOString();
+
+    const { error: err } = await supabase.from('jumper_sessions').insert({
+      child_name: childName.trim(),
+      guardian_name: guardianName.trim(),
+      guardian_phone: guardianPhone.trim(),
+      age: Number(age),
+      check_in_time: checkInTime,
+      duration_minutes: dur.minutes,
+      amount_paid: dur.price,
+      exit_time: exitTime,
+      status: 'active',
+      notes: notes.trim(),
+    });
+    setSaving(false);
+    if (err) { setError('Could not save. Please try again.'); return; }
+    onDone();
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0d0f14', padding: '0 0 40px' }}>
+      {/* Header (unchanged) */}
+      <div style={{ background: '#151820', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <button onClick={onCancel} style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}>
+          <ChevronLeft size={24} />
+        </button>
+        <div>
+          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, color: '#f0f2f8', margin: 0 }}>New Check-in</h1>
+          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Fill in the child's details</p>
+        </div>
+      </div>
+
+      <div style={{ padding: '24px 20px', maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Child Information (unchanged) */}
+        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Child Information</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Child's Name *</label>
+              <input type="text" value={childName} onChange={e => setChildName(e.target.value)}
+                placeholder="e.g. Jamie Mwangi" autoFocus
+                style={{ ...inputStyle, borderColor: nameConflict ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)' }} />
+              {nameConflict && (
+                <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <AlertTriangle size={16} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', margin: '0 0 3px' }}>Name already active</p>
+                    <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>
+                      <strong style={{ color: '#f0f2f8' }}>{nameConflict.child_name}</strong> (age {nameConflict.age}) checked in at {fmtTime(nameConflict.check_in_time)}, exits {fmtTime(nameConflict.exit_time)}.
+                      Please add something to tell them apart — e.g. <em style={{ color: '#d1d5db' }}>{childName.trim()} B</em> or include a surname.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={labelStyle}>Age *</label>
+              <input type="number" value={age} onChange={e => setAge(e.target.value)}
+                placeholder="e.g. 8" min="1" max="17" inputMode="numeric" style={{ ...inputStyle, width: 120 }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Guardian Information (unchanged) */}
+        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Guardian Information</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Guardian's Name *</label>
+              <input type="text" value={guardianName} onChange={e => setGuardianName(e.target.value)}
+                placeholder="e.g. Mary Wanjiku" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Phone Number</label>
+              <input type="tel" value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)}
+                placeholder="e.g. 0712 345 678" inputMode="tel" style={inputStyle} />
+            </div>
+          </div>
+        </div>
+
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* DURATION & PAYMENT SECTION (modified) */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 4 }}>Duration & Payment</p>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Select jump time</p>
+
+          {/* Preset options: 1h and 2h */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            <button onClick={() => setDurationOption('1h')}
+              style={{
+                padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+                border: `2px solid ${durationOption === '1h' ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                background: durationOption === '1h' ? 'rgba(99,102,241,0.15)' : '#1c1f29',
+              }}>
+              <p style={{ fontSize: 16, fontWeight: 700, color: durationOption === '1h' ? '#a5b4fc' : '#f0f2f8', margin: 0 }}>1 hour</p>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(price1h)}</p>
+              <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{isWeekend() ? 'Weekend rate' : 'Weekday rate'}</p>
+            </button>
+            <button onClick={() => setDurationOption('2h')}
+              style={{
+                padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+                border: `2px solid ${durationOption === '2h' ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                background: durationOption === '2h' ? 'rgba(99,102,241,0.15)' : '#1c1f29',
+              }}>
+              <p style={{ fontSize: 16, fontWeight: 700, color: durationOption === '2h' ? '#a5b4fc' : '#f0f2f8', margin: 0 }}>2 hours</p>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(price2h)}</p>
+            </button>
+          </div>
+
+          {/* Unlimited Day Pass */}
+          <button onClick={() => setDurationOption('unlimited')}
+            style={{
+              width: '100%', padding: '14px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+              border: `2px solid ${durationOption === 'unlimited' ? '#f59e0b' : 'rgba(255,255,255,0.08)'}`,
+              background: durationOption === 'unlimited' ? 'rgba(245,158,11,0.15)' : '#1c1f29',
+              marginBottom: 16,
+            }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: durationOption === 'unlimited' ? '#fbbf24' : '#f0f2f8', margin: 0 }}>🎉 Unlimited Day Pass</p>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(3000)} · All day jumping</p>
+          </button>
+
+          {/* Custom duration */}
+          <div style={{
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            paddingTop: 16, marginTop: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <input type="checkbox" checked={durationOption === 'custom'} onChange={() => setDurationOption('custom')} />
+              <span style={{ fontSize: 13, color: '#f0f2f8' }}>Custom duration</span>
+            </div>
+            {durationOption === 'custom' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4, display: 'block' }}>Minutes</label>
+                  <input type="number" value={customMinutesVal} onChange={e => setCustomMinutesVal(e.target.value)}
+                    placeholder="e.g., 45" min="1" style={{ ...inputStyle, fontSize: 14, padding: '12px' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4, display: 'block' }}>Price (KSH)</label>
+                  <input type="number" value={customPriceVal} onChange={e => setCustomPriceVal(e.target.value)}
+                    placeholder="Amount" min="0" step="10" style={{ ...inputStyle, fontSize: 14, padding: '12px' }} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Summary of selected */}
+          {durationOption !== 'custom' && getSelectedDuration() && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(16,185,129,0.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 14, color: '#6b7280' }}>Amount to collect</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#10b981' }}>{fmtKSH(getSelectedDuration()!.price)}</span>
+            </div>
+          )}
+          {durationOption === 'custom' && customMinutesVal && customPriceVal && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(16,185,129,0.1)', borderRadius: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Duration: {customMinutesVal} min</span>
+                <span>Price: {fmtKSH(parseFloat(customPriceVal) || 0)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Notes (unchanged) */}
+        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <label style={labelStyle}>Notes (optional)</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. allergies, special needs, school group..."
+            rows={3}
+            style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+          />
+        </div>
+
+        {error && (
+          <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AlertTriangle size={16} color="#ef4444" />
+            <span style={{ fontSize: 14, color: '#ef4444' }}>{error}</span>
+          </div>
+        )}
+
+        <button onClick={handleSubmit} disabled={saving}
+          style={{
+            padding: '18px', background: saving ? '#1c1f29' : '#6366f1',
+            border: 'none', borderRadius: 14, color: saving ? '#6b7280' : '#fff',
+            fontSize: 16, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
+            transition: 'all 0.15s',
+          }}>
+          {saving ? 'Checking in…' : `✓ Check In`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Session card ─────────────────────────────────────────────────────────────
+function SessionCard({ session, onExit, onRefresh }: {
+  session: JumperSession; onExit: (id: number) => void; onRefresh: () => void;
+}) {
+  const isActive = session.status === 'active';
+  const { urgent, overdue } = isActive ? timeUntilExit(session.exit_time) : { urgent: false, overdue: false };
+
+  const borderColor = !isActive ? 'rgba(255,255,255,0.06)'
+    : overdue ? 'rgba(239,68,68,0.4)'
+      : urgent ? 'rgba(245,158,11,0.35)'
+        : 'rgba(16,185,129,0.25)';
+
+  const accentBg = !isActive ? 'rgba(107,114,128,0.1)'
+    : overdue ? 'rgba(239,68,68,0.1)'
+      : urgent ? 'rgba(245,158,11,0.1)'
+        : 'rgba(16,185,129,0.1)';
+
+  return (
+    <div style={{
+      background: '#151820', borderRadius: 16,
+      border: `1px solid ${borderColor}`,
+      padding: '16px 18px', transition: 'border-color 0.3s',
+    }}>
+      {/* Top row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          <p style={{ fontSize: 18, fontWeight: 700, color: '#f0f2f8', margin: '0 0 2px' }}>{session.child_name}</p>
+          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Age {session.age} · Guardian: {session.guardian_name}</p>
+          {session.guardian_phone && <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>{session.guardian_phone}</p>}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+            background: accentBg,
+            color: !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#10b981',
+            textTransform: 'uppercase', letterSpacing: '0.05em',
+          }}>
+            {!isActive ? 'Exited' : overdue ? 'Overdue' : urgent ? 'Leaving soon' : 'Jumping'}
+          </span>
+        </div>
+      </div>
+
+      {/* Time info */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Checked in</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{fmtTime(session.check_in_time)}</p>
+        </div>
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Exit by</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{fmtTime(session.exit_time)}</p>
+        </div>
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Duration</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{session.duration_minutes} min</p>
+        </div>
+        <div>
+          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Paid</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#10b981', margin: 0 }}>{fmtKSH(session.amount_paid)}</p>
+        </div>
+      </div>
+
+      {/* Countdown */}
+      {isActive && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: accentBg, borderRadius: 8 }}>
+          <LiveTimer exitTime={session.exit_time} status={session.status} />
+        </div>
+      )}
+
+      {session.notes && (
+        <p style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic', marginBottom: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+          Note: {session.notes}
+        </p>
+      )}
+
+      {/* Exit button */}
+      {isActive && (
+        <button onClick={() => onExit(session.id)}
+          style={{ width: '100%', padding: '12px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: '#ef4444', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+        >
+          <LogOut size={15} /> Mark as Exited
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Trampoline App ───────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trampoline Records & Analytics View
+// ─────────────────────────────────────────────────────────────────────────────
+function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
+  const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'exited'>('all');
+
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const now = new Date();
+    if (period === 'today') return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
+    if (period === 'week') return { rangeStart: startOfWeek(now, { weekStartsOn: 1 }), rangeEnd: endOfWeek(now, { weekStartsOn: 1 }) };
+    if (period === 'month') return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) };
+    const d = parseISO(customDate);
+    return { rangeStart: startOfDay(d), rangeEnd: endOfDay(d) };
+  }, [period, customDate]);
+
+  const filtered = useMemo(() => {
+    return allSessions.filter(s => {
+      const t = parseISO(s.check_in_time);
+      if (t < rangeStart || t > rangeEnd) return false;
+      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        return (
+          s.child_name.toLowerCase().includes(q) ||
+          s.guardian_name.toLowerCase().includes(q) ||
+          s.notes.toLowerCase().includes(q) ||
+          String(s.age).includes(q)
+        );
+      }
+      return true;
+    });
+  }, [allSessions, rangeStart, rangeEnd, statusFilter, search]);
+
+  // Analytics data — sessions per hour bucket for the period
+  const chartData = useMemo(() => {
+    if (period === 'today' || period === 'custom') {
+      // Hourly breakdown for single day
+      return Array.from({ length: 14 }, (_, i) => {
+        const hour = i + 7; // 7am – 8pm
+        const count = filtered.filter(s => {
+          const h = parseISO(s.check_in_time).getHours();
+          return h === hour;
+        }).length;
+        const rev = filtered.filter(s => parseISO(s.check_in_time).getHours() === hour)
+          .reduce((sum, s) => sum + s.amount_paid, 0);
+        return { label: `${hour > 12 ? hour - 12 : hour}${hour >= 12 ? 'pm' : 'am'}`, sessions: count, revenue: rev };
+      });
+    }
+    // Daily breakdown for week/month
+    const days = period === 'week' ? 7 : 30;
+    return Array.from({ length: days }, (_, i) => {
+      const day = subDays(rangeEnd, days - 1 - i);
+      const ds = startOfDay(day), de = endOfDay(day);
+      const daySessions = allSessions.filter(s => {
+        const t = parseISO(s.check_in_time);
+        return t >= ds && t <= de;
+      });
+      return {
+        label: format(day, days === 7 ? 'EEE' : 'dd'),
+        sessions: daySessions.length,
+        revenue: daySessions.reduce((sum, s) => sum + s.amount_paid, 0),
+      };
+    });
+  }, [filtered, allSessions, period, rangeStart, rangeEnd]);
+
+  const totalRevenue = filtered.reduce((s, r) => s + r.amount_paid, 0);
+  const totalSessions = filtered.length;
+  const avgDuration = filtered.length > 0
+    ? Math.round(filtered.reduce((s, r) => s + r.duration_minutes, 0) / filtered.length)
+    : 0;
+  const activeCount = filtered.filter(s => s.status === 'active').length;
+
+  const exportCSV = () => {
+    const headers = ['Date', 'Check-in Time', 'Exit Time', 'Child Name', 'Age', 'Guardian', 'Phone', 'Duration (min)', 'Amount (KSH)', 'Status', 'Notes'];
+    const rows = filtered.map(s => [
+      format(parseISO(s.check_in_time), 'yyyy-MM-dd'),
+      format(parseISO(s.check_in_time), 'HH:mm'),
+      format(parseISO(s.exit_time), 'HH:mm'),
+      s.child_name, s.age, s.guardian_name, s.guardian_phone,
+      s.duration_minutes, s.amount_paid, s.status, s.notes,
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jumpzone-records-${period === 'custom' ? customDate : period}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const inp: React.CSSProperties = {
+    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 10, padding: '10px 14px', color: '#f0f2f8',
+    fontSize: 14, outline: 'none', width: '100%',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Period filter bar */}
+      <div style={{ background: '#151820', borderRadius: 14, padding: '14px 16px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        {(['today', 'week', 'month', 'custom'] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)}
+            style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: period === p ? '#6366f1' : '#1c1f29', color: period === p ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+            {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Pick Date'}
+          </button>
+        ))}
+        {period === 'custom' && (
+          <input type="date" value={customDate} max={format(new Date(), 'yyyy-MM-dd')}
+            onChange={e => setCustomDate(e.target.value)}
+            style={{ ...inp, width: 'auto', padding: '7px 12px', fontSize: 13, cursor: 'pointer' }} />
+        )}
+        <button onClick={exportCSV}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: '#1c1f29', color: '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <Download size={14} /> Export CSV
+        </button>
+      </div>
+
+      {/* Summary stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+        {[
+          { label: 'Total Sessions', value: String(totalSessions), color: '#6366f1' },
+          { label: 'Revenue', value: `KSH ${totalRevenue.toLocaleString()}`, color: '#10b981' },
+          { label: 'Avg Duration', value: `${avgDuration} min`, color: '#f59e0b' },
+          { label: 'Still Active', value: String(activeCount), color: '#ef4444' },
+        ].map(c => (
+          <div key={c.label} style={{ background: '#151820', borderRadius: 12, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+            <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
+            <p style={{ fontSize: 16, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Mini bar chart */}
+      {chartData.some(d => d.sessions > 0) && (
+        <div style={{ background: '#151820', borderRadius: 14, padding: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {period === 'today' || period === 'custom' ? 'Sessions by Hour' : 'Sessions by Day'}
+          </p>
+          <div style={{ height: 100 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} barSize={period === 'month' ? 8 : 14}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
+                <Tooltip
+                  contentStyle={{
+                    background: '#1c1f29',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 8,
+                    color: '#f0f2f8',
+                    fontSize: 12
+                  }}
+                  formatter={(v, name) => {
+                    const key = String(name ?? '');
+                    const isRevenue = key === 'revenue';
+                    return [isRevenue ? `KSH ${v}` : v, isRevenue ? 'Revenue' : 'Sessions'];
+                  }}
+                />
+                <Bar dataKey="sessions" fill="#6366f1" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Search + status filter */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, guardian, age, notes…"
+            style={{ ...inp, paddingLeft: 36 }}
+          />
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }}>
+            <Filter size={14} />
+          </span>
+        </div>
+        {(['all', 'active', 'exited'] as const).map(sf => (
+          <button key={sf} onClick={() => setStatusFilter(sf)}
+            style={{
+              padding: '10px 14px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              background: statusFilter === sf
+                ? (sf === 'active' ? 'rgba(16,185,129,0.15)' : sf === 'exited' ? 'rgba(107,114,128,0.15)' : '#1c1f29')
+                : '#151820',
+              color: statusFilter === sf
+                ? (sf === 'active' ? '#10b981' : sf === 'exited' ? '#9ca3af' : '#fff')
+                : '#6b7280',
+              border: statusFilter === sf
+                ? `1px solid ${sf === 'active' ? 'rgba(16,185,129,0.3)' : sf === 'exited' ? 'rgba(107,114,128,0.3)' : 'rgba(99,102,241,0.4)'}`
+                : '1px solid transparent',
+              transition: 'all 0.15s',
+            }}>
+            {sf === 'all' ? 'All' : sf === 'active' ? 'Active' : 'Exited'}
+          </button>
+        ))}
+      </div>
+
+      {/* Records table */}
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#6b7280', background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <Users size={36} color="#374151" style={{ margin: '0 auto 12px' }} />
+          <p style={{ fontSize: 15, color: '#4b5563', marginBottom: 6 }}>No records found</p>
+          <p style={{ fontSize: 13 }}>Try adjusting the period or search filter</p>
+        </div>
+      ) : (
+        <div style={{ background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+          {/* Table header */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 580 }}>
+              <thead>
+                <tr style={{ background: '#1c1f29' }}>
+                  {['Time In', 'Child', 'Age', 'Guardian', 'Duration', 'Paid', 'Status'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s, i) => {
+                  const isActive = s.status === 'active';
+                  const { overdue, urgent } = isActive ? timeUntilExit(s.exit_time) : { overdue: false, urgent: false };
+                  return (
+                    <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                        <div>{fmtTime(s.check_in_time)}</div>
+                        <div style={{ fontSize: 11, color: '#4b5563' }}>{format(parseISO(s.check_in_time), 'MMM d')}</div>
+                      </td>
+                      <td style={{ padding: '11px 14px', fontWeight: 600, color: '#f0f2f8', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.child_name}
+                        {s.notes && <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.notes}</div>}
+                      </td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af' }}>{s.age}</td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div>{s.guardian_name}</div>
+                        {s.guardian_phone && <div style={{ fontSize: 11, color: '#4b5563' }}>{s.guardian_phone}</div>}
+                      </td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{s.duration_minutes} min</td>
+                      <td style={{ padding: '11px 14px', color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>KSH {s.amount_paid}</td>
+                      <td style={{ padding: '11px 14px' }}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
+                          background: !isActive ? 'rgba(107,114,128,0.15)' : overdue ? 'rgba(239,68,68,0.15)' : urgent ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)',
+                          color: !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#10b981',
+                        }}>
+                          {!isActive ? 'Exited' : overdue ? 'Overdue' : urgent ? 'Soon' : 'Active'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {/* Totals row */}
+              <tfoot>
+                <tr style={{ background: '#1c1f29', borderTop: '2px solid rgba(255,255,255,0.08)' }}>
+                  <td colSpan={5} style={{ padding: '10px 14px', fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Total · {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+                  </td>
+                  <td style={{ padding: '10px 14px', color: '#10b981', fontWeight: 800, fontSize: 14 }}>
+                    KSH {totalRevenue.toLocaleString()}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrampolineApp({ onBack }: { onBack: () => void }) {
+  const [view, setView] = useState<'home' | 'checkin' | 'history'>('home');
+  const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
+  const [sessions, setSessions] = useState<JumperSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'active' | 'all'>('active');
+  const [liveSearch, setLiveSearch] = useState('');
+  const [alertShown, setAlertShown] = useState<Set<number>>(new Set());
+  const tickRef = useRef(0);
+
+  const fetchSessions = useCallback(async () => {
+    const { data } = await supabase
+      .from('jumper_sessions')
+      .select('*')
+      .order('check_in_time', { ascending: false })
+      .limit(200);
+    if (data) setSessions(data as JumperSession[]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchSessions();
+    // Realtime: new check-ins appear instantly
+    const ch = supabase.channel('jumper_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jumper_sessions' }, fetchSessions)
+      .subscribe();
+    return () => { ch.unsubscribe(); };
+  }, [fetchSessions]);
+
+  // Live tick every 10s to update timers and check for alerts
+  useEffect(() => {
+    const t = setInterval(() => {
+      tickRef.current += 1;
+      setSessions(prev => [...prev]); // force re-render for live timers
+    }, 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  // In-app alert for sessions about to exit (no package needed)
+  useEffect(() => {
+    sessions.forEach(s => {
+      if (s.status !== 'active') return;
+      const { minutes, overdue } = timeUntilExit(s.exit_time);
+      // Alert at 5 min remaining and when overdue
+      if ((minutes <= 5 && minutes > 0 && !alertShown.has(s.id * 1000 + 5)) ||
+        (overdue && !alertShown.has(s.id * 1000 + 0))) {
+        const key = s.id * 1000 + (overdue ? 0 : 5);
+        setAlertShown(prev => new Set([...prev, key]));
+      }
+    });
+  }, [sessions, alertShown]);
+
+  const handleExit = async (id: number) => {
+    await supabase.from('jumper_sessions').update({ status: 'exited' }).eq('id', id);
+    fetchSessions();
+  };
+
+  const active = sessions.filter(s => s.status === 'active');
+  const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
+  const urgentSessions = active.filter(s => { const { urgent, overdue } = timeUntilExit(s.exit_time); return urgent && !overdue; });
+  const todayRevenue = sessions
+    .filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString())
+    .reduce((sum, s) => sum + s.amount_paid, 0);
+
+  if (view === 'checkin') {
+    return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
+  }
+
+  const displayed = useMemo(() => {
+    const base = tab === 'active' ? active : sessions.filter(s =>
+      new Date(s.check_in_time).toDateString() === new Date().toDateString()
+    );
+    if (!liveSearch.trim()) return base;
+    const q = liveSearch.toLowerCase();
+    return base.filter(s =>
+      s.child_name.toLowerCase().includes(q) ||
+      s.guardian_name.toLowerCase().includes(q) ||
+      s.notes.toLowerCase().includes(q) ||
+      String(s.age).includes(q)
+    );
+  }, [tab, active, sessions, liveSearch]);
+
+  return (
+    <>
+      <style>{`
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root { --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1; }
+        body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+        @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+        @keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
+        textarea { font-family: inherit; }
+        input::placeholder, textarea::placeholder { color: #4b5563; }
+      `}</style>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+      {/* Header */}
+      <div style={{ background: '#151820', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={onBack} title="Back to home" style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '6px 8px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, transition: 'color 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#f0f2f8')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
+            >
+              <ChevronLeft size={18} /> Home
+            </button>
+            <div>
+              <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 800, color: '#f0f2f8', margin: 0 }}>Jump Zone</h1>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Trampoline Park · {new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Alert badges — only show on live tab */}
+            {mainTab === 'live' && overdueSessions.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
+                <Bell size={13} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
+                <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length}</span>
+              </div>
+            )}
+            {mainTab === 'live' && urgentSessions.length > 0 && overdueSessions.length === 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
+                <Clock size={13} color="#f59e0b" />
+                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length}</span>
+              </div>
+            )}
+            {/* Main tab switcher */}
+            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
+              {(['live', 'records'] as const).map(t => (
+                <button key={t} onClick={() => setMainTab(t)}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: mainTab === t ? '#6366f1' : 'transparent', color: mainTab === t ? '#fff' : '#6b7280', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
+                  {t === 'live' ? 'Live' : 'Records'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px 100px' }}>
+
+        {/* Records tab */}
+        {mainTab === 'records' && (
+          <TrampolineRecords allSessions={sessions} />
+        )}
+
+        {/* Live tab */}
+        {mainTab === 'live' && <>
+
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: 'Jumping now', value: String(active.length), color: '#10b981' },
+              { label: "Today's sessions", value: String(sessions.filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString()).length), color: '#6366f1' },
+              { label: "Today's revenue", value: `KSH ${todayRevenue}`, color: '#f59e0b' },
+            ].map(c => (
+              <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+                <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
+                <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Alert banners */}
+          {overdueSessions.map(s => (
+            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
+              <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>{s.child_name} is overdue!</p>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)}</p>
+              </div>
+            </div>
+          ))}
+
+          {urgentSessions.map(s => (
+            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>{s.child_name} leaving soon</p>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · Guardian: {s.guardian_name}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* Tab filter + search */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['active', 'all'] as const).map(t => (
+                <button key={t} onClick={() => { setTab(t); setLiveSearch(''); }}
+                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+                  {t === 'active' ? `Active (${active.length})` : 'All Today'}
+                </button>
+              ))}
+            </div>
+            {/* Search bar */}
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                value={liveSearch}
+                onChange={e => setLiveSearch(e.target.value)}
+                placeholder={tab === 'active' ? 'Search active — name, age, guardian, notes…' : 'Search today — name, age, guardian, notes…'}
+                style={{
+                  width: '100%', padding: '11px 14px 11px 38px', fontSize: 14,
+                  background: '#151820', border: '1px solid rgba(255,255,255,0.07)',
+                  borderRadius: 10, color: '#f0f2f8', outline: 'none', boxSizing: 'border-box',
+                  transition: 'border-color 0.15s',
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
+                onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}
+              />
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', pointerEvents: 'none' }}>
+                <Filter size={15} />
+              </span>
+              {liveSearch && (
+                <button onClick={() => setLiveSearch('')}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+            {liveSearch && (
+              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
+                {displayed.length} result{displayed.length !== 1 ? 's' : ''} for <span style={{ color: '#a5b4fc' }}>"{liveSearch}"</span>
+              </p>
+            )}
+          </div>
+
+          {/* Sessions list */}
+          {loading ? (
+            <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
+          ) : displayed.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
+              <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
+              <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+                {liveSearch ? `No results for "${liveSearch}"` : tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
+              </p>
+              <p style={{ fontSize: 14 }}>{liveSearch ? 'Try a different name or age' : 'Tap the button below to check in a child'}</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {displayed.map(s => (
+                <SessionCard key={s.id} session={s} onExit={handleExit} onRefresh={fetchSessions} />
+              ))}
+            </div>
+          )}
+        </>}
+      </div>
+
+      {/* Big check-in button — fixed at bottom, only on live tab */}
+      {mainTab === 'live' && <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
+        <div style={{ maxWidth: 600, margin: '0 auto' }}>
+          <button onClick={() => setView('checkin')}
+            style={{ width: '100%', padding: '18px', background: '#6366f1', border: 'none', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
+          >
+            <UserPlus size={20} /> Check In a Child
+          </button>
+        </div>
+      </div>}
+    </>
+  );
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  // ── APP SECTION — landing choice ──────────────────────────────────────────
+  const [appSection, setAppSection] = useState<'landing' | 'vr' | 'trampoline'>('landing');
+
   // ── MULTI-USER AUTH ───────────────────────────────────────────────────────
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -2862,7 +3940,7 @@ export default function Dashboard() {
       try {
         const stored = sessionStorage.getItem('arcade_session');
         if (stored) setSession(JSON.parse(stored));
-      } catch {}
+      } catch { }
       setAuthLoading(false);
     };
     init();
@@ -2885,12 +3963,12 @@ export default function Dashboard() {
   const handleLogin = (user: ArcadeUser) => {
     const s: ActiveSession = { userId: user.id, name: user.name, role: user.role };
     setSession(s);
-    try { sessionStorage.setItem('arcade_session', JSON.stringify(s)); } catch {}
+    try { sessionStorage.setItem('arcade_session', JSON.stringify(s)); } catch { }
   };
 
   const handleLogout = () => {
     setSession(null);
-    try { sessionStorage.removeItem('arcade_session'); } catch {}
+    try { sessionStorage.removeItem('arcade_session'); } catch { }
   };
 
   const refreshUsers = async () => {
@@ -2977,6 +4055,21 @@ export default function Dashboard() {
     return logs.filter(l => l.date === today).reduce((s, l) => s + getEffectiveRevenue(l), 0);
   }, [logs, getEffectiveRevenue]);
 
+  // ── Section routing ──────────────────────────────────────────────────────
+  if (appSection === 'landing') {
+    return (
+      <LandingScreen
+        onVR={() => setAppSection('vr')}
+        onTrampoline={() => setAppSection('trampoline')}
+      />
+    );
+  }
+
+  if (appSection === 'trampoline') {
+    return <TrampolineApp onBack={() => setAppSection('landing')} />;
+  }
+
+  // ── VR Arcade auth gate ───────────────────────────────────────────────────
   if (authLoading) {
     return <LoadingScreen />;
   }
@@ -2987,11 +4080,12 @@ export default function Dashboard() {
         users={arcadeUsers}
         onLogin={handleLogin}
         onFirstSetup={refreshUsers}
+        onBack={() => setAppSection('landing')}
       />
     );
   }
 
-    return (
+  return (
     <>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3032,6 +4126,7 @@ export default function Dashboard() {
           onFreePlay={() => setShowFreePlayModal(true)}
           session={session}
           onLogout={handleLogout}
+          onBackToLanding={() => setAppSection('landing')}
         />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -3079,7 +4174,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>© {new Date().getFullYear()} VR Arcade</span>
               <span style={{ opacity: 0.5 }}>|</span>
-              <span>For Help Contact   Email<span style={{ color: 'var(--accent)', fontWeight: 500 }}>  📩</span></span>
+              <span> <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -3091,11 +4186,11 @@ export default function Dashboard() {
                 onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
               >
-                charlesmacharia4564@gmail.com
+                For Help Email | charlesmacharia4564@gmail.com
               </a>
               <span style={{ opacity: 0.4 }}>|</span>
 
-              <span >📞 +254 769 640 918</span>
+              <span >Jump Xtreme</span>
             </div>
           </footer>
         </div>

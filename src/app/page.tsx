@@ -2883,7 +2883,7 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
               </svg>
             </div>
-            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Zone</h2>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Xtreme</h2>
             <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
               Trampoline check-in — record kids entering, track jump time, and get exit alerts.
             </p>
@@ -2895,7 +2895,7 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         </div>
 
         <p style={{ marginTop: 40, fontSize: 12, color: '#374151', position: 'relative', zIndex: 1 }}>
-          Xtreme Zone · Staff Portal
+          Jump Xtreme · Operation Portal
         </p>
       </div>
     </>

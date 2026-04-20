@@ -264,11 +264,10 @@ function ConfirmModal({ message, onConfirm, onCancel }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Login Screen — pick name → enter PIN
 // ─────────────────────────────────────────────────────────────────────────────
-function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
+function LoginScreen({ users, onLogin, onFirstSetup }: {
   users: ArcadeUser[];
   onLogin: (user: ArcadeUser) => void;
   onFirstSetup: () => void;
-  onBack: () => void;
 }) {
   const [step, setStep] = useState<'pick' | 'pin' | 'register'>('pick');
   const [selectedUser, setSelectedUser] = useState<ArcadeUser | null>(null);
@@ -513,9 +512,6 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
           </button>
         ))}
       </div>
-      <button type="button" onClick={onBack} style={{ marginTop: 8, padding: '10px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-        <ChevronLeft size={14} /> Back to Home
-      </button>
     </div>
   );
 }
@@ -1727,14 +1723,22 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
     if (!freePlaySession) return;
     const now = Date.now();
     if (freePlaySession.endTime.getTime() <= now) return;
-    const start = freePlaySession.endTime.getTime() - freePlaySession.durationHours * 3600000;
+    const freePlayStart = freePlaySession.endTime.getTime() - freePlaySession.durationHours * 3600000;
     logs.forEach(l => {
-      const logTime = parseISO(l.start_time).getTime();
-      if (logTime >= start && !statusOverrides.has(l.id)) {
-        setStatusOverrides(prev => new Map(prev).set(l.id, 'TEST'));
+      if (!knownLogIds.current.has(l.id)) {
+        knownLogIds.current.add(l.id);
+        const logTime = parseISO(l.start_time).getTime();
+        if (logTime >= freePlayStart) {
+          setStatusOverrides(prev => {
+            if (prev.has(l.id)) return prev;
+            const next = new Map(prev);
+            next.set(l.id, 'TEST');
+            return next;
+          });
+        }
       }
     });
-  }, [logs, freePlaySession]);
+  }, [logs, freePlaySession, setStatusOverrides]);
 
   // When free play ends, clear auto-TEST overrides (keep manually set ones)
   const prevFreePlay = useRef<FreePlaySession>(null);
@@ -2883,7 +2887,7 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
               </svg>
             </div>
-            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Xtreme</h2>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Zone</h2>
             <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
               Trampoline check-in — record kids entering, track jump time, and get exit alerts.
             </p>
@@ -2895,7 +2899,7 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         </div>
 
         <p style={{ marginTop: 40, fontSize: 12, color: '#374151', position: 'relative', zIndex: 1 }}>
-          Jump Xtreme · Operation Portal
+          Xtreme Zone · Staff Portal
         </p>
       </div>
     </>
@@ -2906,18 +2910,29 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
 // ─────────────────────────────────────────────────────────────────────────────
 // TRAMPOLINE PARK — Jump Zone
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-kid description stored as array in JSON
+interface KidDesc {
+  tops: string[];    // selected top_wear ids
+  bottoms: string[]; // selected bottom_wear ids
+  colors: string[];  // selected color ids
+}
+
 interface JumperSession {
   id: number;
-  child_name: string;
-  guardian_name: string;
-  guardian_phone: string;
-  age: number;
+  kid_count: number;            // number of children in the group
   check_in_time: string;
-  duration_minutes: number;
-  amount_paid: number;
-  exit_time: string;        // computed: check_in + duration
-  status: 'active' | 'exited' | 'overdue';
-  notes: string;
+  duration_hours: number;       // base hours: 1, 2, 3 …
+  bonus_minutes: number;        // extra time: 0, 10, 20, 30, 40
+  exit_time: string;            // scheduled = check_in + duration_hours*60 + bonus_minutes
+  actual_exit_time: string | null; // set when worker presses Exit
+  status: 'active' | 'exited';
+  // kid_descs stores JSON array of KidDesc, one per kid
+  // For 1 kid: top_wear/bottom_wear/colors kept for backwards compat
+  // For 2+ kids: kid_descs is the source of truth
+  top_wear: string;
+  bottom_wear: string;
+  colors: string;
+  kid_descs: string | null;     // JSON: KidDesc[] — one entry per kid
   created_at: string;
 }
 
@@ -2942,13 +2957,6 @@ function fmtTime(iso: string) {
 
 
 
-const DURATION_OPTIONS = [
-  { label: '30 min', value: 30, price: 200 },
-  { label: '1 hour', value: 60, price: 350 },
-  { label: '1.5 hrs', value: 90, price: 500 },
-  { label: '2 hours', value: 120, price: 650 },
-];
-
 // ─── Timer display (live countdown) ──────────────────────────────────────────
 function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
   const [tick, setTick] = useState(0);
@@ -2970,656 +2978,668 @@ function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
   );
 }
 
-// ─── Check-in form ────────────────────────────────────────────────────────────
-function CheckInForm({ onDone, onCancel, activeSessions }: { onDone: () => void; onCancel: () => void; activeSessions: JumperSession[] }) {
-  const [childName, setChildName] = useState('');
-  const [guardianName, setGuardianName] = useState('');
-  const [guardianPhone, setGuardianPhone] = useState('');
-  const [age, setAge] = useState('');
-  const [durationOption, setDurationOption] = useState<'1h' | '2h' | 'custom' | 'unlimited'>('1h');
-  const [customMinutesVal, setCustomMinutesVal] = useState('');
-  const [customPriceVal, setCustomPriceVal] = useState('');
-  const [notes, setNotes] = useState('');
+// ─── Clothing options ───────────────────────────────────────────────────────
+const TOP_WEAR_OPTIONS = [
+  { id: 'tshirt', label: 'T-Shirt', icon: '👕' },
+  { id: 'sweater', label: 'Sweater', icon: '🧥' },
+  { id: 'hoodie', label: 'Hoodie', icon: '🧤' },
+  { id: 'jacket', label: 'Jacket', icon: '🧣' },
+  { id: 'vest', label: 'Vest', icon: '🎽' },
+  { id: 'blouse', label: 'Blouse', icon: '👚' },
+];
+const BOTTOM_WEAR_OPTIONS = [
+  { id: 'shorts', label: 'Shorts', icon: '🩳' },
+  { id: 'trousers', label: 'Trousers', icon: '👖' },
+  { id: 'skirt', label: 'Skirt/Dress', icon: '👗' },
+  { id: 'leggings', label: 'Leggings', icon: '🧦' },
+  { id: 'jeans', label: 'Jeans', icon: '👖' },
+];
+const COLOR_OPTIONS = [
+  { id: 'red', label: 'Red', hex: '#ef4444' },
+  { id: 'blue', label: 'Blue', hex: '#3b82f6' },
+  { id: 'green', label: 'Green', hex: '#22c55e' },
+  { id: 'yellow', label: 'Yellow', hex: '#eab308' },
+  { id: 'black', label: 'Black', hex: '#1f2937' },
+  { id: 'white', label: 'White', hex: '#e5e7eb' },
+  { id: 'orange', label: 'Orange', hex: '#f97316' },
+  { id: 'pink', label: 'Pink', hex: '#ec4899' },
+  { id: 'purple', label: 'Purple', hex: '#a855f7' },
+  { id: 'brown', label: 'Brown', hex: '#92400e' },
+  { id: 'grey', label: 'Grey', hex: '#6b7280' },
+  { id: 'navy', label: 'Navy', hex: '#1e3a5f' },
+];
+
+// ─── Stepper button ───────────────────────────────────────────────────────────
+function Stepper({ value, onDec, onInc, min = 1, max = 99, large = false }: {
+  value: number; onDec: () => void; onInc: () => void;
+  min?: number; max?: number; large?: boolean;
+}) {
+  const sz = large ? 64 : 52;
+  const fnt = large ? 32 : 24;
+  const numFnt = large ? 48 : 36;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: large ? 20 : 14 }}>
+      <button
+        onClick={onDec} disabled={value <= min}
+        style={{
+          width: sz, height: sz, borderRadius: 16,
+          background: value <= min ? '#1a1d26' : '#282a32',
+          border: 'none', color: value <= min ? '#3a3d4a' : '#c9c4d8',
+          fontSize: fnt, fontWeight: 300, cursor: value <= min ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.12s', flexShrink: 0,
+        }}
+        onMouseDown={e => { if (value > min) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.94)'; }}
+        onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+      >−</button>
+      <span style={{ fontSize: numFnt, fontWeight: 800, color: '#e1e1ed', fontFamily: 'Inter, sans-serif', minWidth: large ? 60 : 44, textAlign: 'center', lineHeight: 1 }}>
+        {String(value).padStart(2, '0')}
+      </span>
+      <button
+        onClick={onInc} disabled={value >= max}
+        style={{
+          width: sz, height: sz, borderRadius: 16,
+          background: 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)',
+          border: 'none', color: '#fff',
+          fontSize: fnt, fontWeight: 300, cursor: value >= max ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.12s', flexShrink: 0,
+          opacity: value >= max ? 0.4 : 1,
+        }}
+        onMouseDown={e => { if (value < max) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.94)'; }}
+        onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+      >+</button>
+    </div>
+  );
+}
+
+// ─── Per-kid description panel ──────────────────────────────────────────────
+function KidDescPanel({ kidIndex, kidCount, desc, onChange }: {
+  kidIndex: number;
+  kidCount: number;
+  desc: KidDesc;
+  onChange: (d: KidDesc) => void;
+}) {
+  const toggle = (field: 'tops' | 'bottoms' | 'colors', id: string) => {
+    const arr = desc[field];
+    onChange({ ...desc, [field]: arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id] });
+  };
+
+  const clothBtn = (selected: boolean): React.CSSProperties => ({
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    padding: '12px 8px', borderRadius: 14, border: 'none', cursor: 'pointer',
+    background: selected ? 'rgba(123,97,255,0.25)' : '#282a32',
+    outline: selected ? '2px solid #7B61FF' : '2px solid transparent',
+    transition: 'all 0.12s', flex: 1, minWidth: 64,
+  });
+
+  // Accent color per kid slot for visual distinction
+  const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
+    '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
+  const accent = kidColors[(kidIndex) % kidColors.length];
+
+  return (
+    <div style={{ background: '#0c0e16', borderRadius: 18, padding: '18px 16px' }}>
+      {/* Kid label */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <div style={{ width: 30, height: 30, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>{kidIndex + 1}</span>
+        </div>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#e1e1ed', margin: 0 }}>
+          Kid {kidIndex + 1}
+          {kidCount > 1 && <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 400, marginLeft: 8 }}>
+            — describe their clothing
+          </span>}
+        </p>
+      </div>
+
+      {/* Top Wear */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Top Wear</p>
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 16 }}>
+        {TOP_WEAR_OPTIONS.map(opt => (
+          <button key={opt.id} onClick={() => toggle('tops', opt.id)} style={clothBtn(desc.tops.includes(opt.id))}>
+            <span style={{ fontSize: 20 }}>{opt.icon}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: desc.tops.includes(opt.id) ? '#c9bfff' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{opt.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Bottom Wear */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Bottoms</p>
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 16 }}>
+        {BOTTOM_WEAR_OPTIONS.map(opt => (
+          <button key={opt.id} onClick={() => toggle('bottoms', opt.id)} style={clothBtn(desc.bottoms.includes(opt.id))}>
+            <span style={{ fontSize: 20 }}>{opt.icon}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: desc.bottoms.includes(opt.id) ? '#c9bfff' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{opt.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Colors */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Color(s)</p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {COLOR_OPTIONS.map(c => {
+          const sel = desc.colors.includes(c.id);
+          return (
+            <button key={c.id} onClick={() => toggle('colors', c.id)} title={c.label}
+              style={{
+                width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                background: c.hex,
+                outline: sel ? `3px solid ${accent}` : '3px solid transparent',
+                outlineOffset: 3,
+                transform: sel ? 'scale(1.2)' : 'scale(1)',
+                transition: 'all 0.12s',
+                boxShadow: c.id === 'white' ? 'inset 0 0 0 1px rgba(255,255,255,0.25)' : 'none',
+              }} />
+          );
+        })}
+      </div>
+      {desc.colors.length > 0 && (
+        <p style={{ fontSize: 11, color: accent, marginTop: 8, fontWeight: 600 }}>
+          {desc.colors.map(id => COLOR_OPTIONS.find(c => c.id === id)?.label).join(', ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Check-in form (Fast, zero keyboard) ─────────────────────────────────────
+function CheckInForm({ onDone, onCancel, activeSessions }: {
+  onDone: () => void; onCancel: () => void; activeSessions: JumperSession[];
+}) {
+  const [kidCount, setKidCount] = useState(1);
+  const [hours, setHours] = useState(1);
+  const [bonusMins, setBonusMins] = useState(0);
+  // Per-kid descriptions — grows/shrinks as kidCount changes
+  const [kidDescs, setKidDescs] = useState<KidDesc[]>([{ tops: [], bottoms: [], colors: [] }]);
+  // Which kid slot is being described (tab index)
+  const [activeKid, setActiveKid] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Check if the entered child name matches an already-active session
-  const nameConflict = useMemo(() => {
-    const trimmed = childName.trim().toLowerCase();
-    if (!trimmed) return null;
-    return activeSessions.find(s => s.child_name.toLowerCase() === trimmed) ?? null;
-  }, [childName, activeSessions]);
-
-  const isGuardianRequired = useMemo(() => {
-    const ageNum = parseInt(age, 10);
-    return !isNaN(ageNum) && ageNum < 18;
-  }, [age]);
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 13, color: '#9ca3af',
-    marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
-  };
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '14px 16px', fontSize: 16,
-    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 12, color: '#f0f2f8', outline: 'none',
-    boxSizing: 'border-box',
+  // Keep kidDescs array in sync with kidCount
+  const handleKidCountChange = (newCount: number) => {
+    setKidCount(newCount);
+    setKidDescs(prev => {
+      if (newCount > prev.length) {
+        // Add empty slots for new kids
+        return [...prev, ...Array(newCount - prev.length).fill(null).map(() => ({ tops: [], bottoms: [], colors: [] }))];
+      }
+      return prev.slice(0, newCount);
+    });
+    // If active kid tab is now out of range, snap to last
+    setActiveKid(prev => Math.min(prev, newCount - 1));
   };
 
-  const isWeekend = () => {
-    const day = new Date().getDay();
-    return day === 0 || day === 6;
+  const updateKidDesc = (index: number, desc: KidDesc) => {
+    setKidDescs(prev => prev.map((d, i) => i === index ? desc : d));
   };
-  const price1h = isWeekend() ? 1250 : 1000;
-  const price2h = isWeekend() ? 2500 : 2000;
 
-  const getSelectedDuration = () => {
-    if (durationOption === '1h') return { minutes: 60, price: price1h };
-    if (durationOption === '2h') return { minutes: 120, price: price2h };
-    if (durationOption === 'unlimited') return { minutes: 720, price: 3000 };
-    // custom
-    const mins = parseInt(customMinutesVal, 10);
-    const price = parseFloat(customPriceVal);
-    if (isNaN(mins) || mins <= 0) return null;
-    return { minutes: mins, price: isNaN(price) ? 0 : price };
-  };
+  const totalMinutes = hours * 60 + bonusMins;
+  const exitTime = new Date(Date.now() + totalMinutes * 60000);
+  const exitLabel = exitTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
   const handleSubmit = async () => {
-    setError('');
-    if (!childName.trim()) { setError("Name is required."); return; }
-    if (nameConflict) { setError(`A person named "${nameConflict.child_name}" is already active. Please change the name.`); return; }
-
-    const ageNum = parseInt(age, 10);
-    if (isNaN(ageNum) || ageNum < 1 || ageNum > 99) { setError('Please enter a valid age (1–99).'); return; }
-
-    // Guardian name is required only if under 18
-    if (isGuardianRequired && !guardianName.trim()) {
-      setError("Guardian's name is required for children under 18.");
-      return;
-    }
-
-    const dur = getSelectedDuration();
-    if (!dur) { setError('Please select a valid duration.'); return; }
-    if (dur.price <= 0 && durationOption !== 'custom') { setError('Invalid price.'); return; }
-    if (durationOption === 'custom' && (dur.price <= 0 || dur.minutes <= 0)) { setError('Enter valid minutes and price.'); return; }
-
     setSaving(true);
+    setError('');
     const checkInTime = new Date().toISOString();
-    const exitTime = new Date(Date.now() + dur.minutes * 60000).toISOString();
-
+    // For single kid: use flat fields for backwards compat
+    // For multiple: store as JSON in kid_descs, and use first kid for flat fields
+    const first = kidDescs[0] ?? { tops: [], bottoms: [], colors: [] };
     const { error: err } = await supabase.from('jumper_sessions').insert({
-      child_name: childName.trim(),
-      guardian_name: guardianName.trim(),
-      guardian_phone: guardianPhone.trim(),
-      age: ageNum,
+      kid_count: kidCount,
       check_in_time: checkInTime,
-      duration_minutes: dur.minutes,
-      amount_paid: dur.price,
-      exit_time: exitTime,
+      duration_hours: hours,
+      bonus_minutes: bonusMins,
+      exit_time: exitTime.toISOString(),
+      actual_exit_time: null,
       status: 'active',
-      notes: notes.trim(),
+      top_wear: first.tops.join(','),
+      bottom_wear: first.bottoms.join(','),
+      colors: first.colors.join(','),
+      kid_descs: kidCount > 1 ? JSON.stringify(kidDescs) : null,
     });
     setSaving(false);
-    if (err) { setError('Could not save. Please try again.'); return; }
+    if (err) { setError('Could not save. Try again.'); return; }
     onDone();
   };
+
+  const secLabel: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: '#6b7280',
+    textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16,
+  };
+  const card: React.CSSProperties = {
+    background: '#1d1f28', borderRadius: 24, padding: '22px 20px', marginBottom: 16,
+  };
+
+  // Dot indicator: shows which kids have at least one color picked
+  const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
+    '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
+
   return (
-    <div style={{ minHeight: '100vh', background: '#0d0f14', padding: '0 0 40px' }}>
-      {/* Header (unchanged) */}
-      <div style={{ background: '#151820', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-        <button onClick={onCancel} style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}>
-          <ChevronLeft size={24} />
-        </button>
-        <div>
-          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, color: '#f0f2f8', margin: 0 }}>New Check-in</h1>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Fill in the child's details</p>
+    <div style={{ minHeight: '100vh', background: '#0c0e16', fontFamily: 'Inter, sans-serif' }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        * { box-sizing: border-box; }
+        .kid-tab { transition: all 0.15s; }
+        .kid-tab:hover { opacity: 0.85; }
+      `}</style>
+
+      {/* Sticky header */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: 'rgba(29,31,40,0.9)', backdropFilter: 'blur(20px)',
+        padding: '14px 20px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
+            <ChevronLeft size={22} />
+          </button>
+          <div>
+            <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Fast Check-in</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>VELOCITY PLAY</p>
+          </div>
+        </div>
+        <div style={{ background: '#1d1f28', borderRadius: 12, padding: '8px 14px', textAlign: 'right' }}>
+          <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Est. Exit</p>
+          <p style={{ fontSize: 18, fontWeight: 800, color: '#00C853', margin: 0 }}>{exitLabel}</p>
         </div>
       </div>
 
-      <div style={{ padding: '24px 20px', maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Child Information (unchanged) */}
-        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Client Information</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: '20px 16px 130px', maxWidth: 480, margin: '0 auto' }}>
+
+        {/* ── SECTION 1: QUANTITY ─────────────────────────────────────── */}
+        <p style={secLabel}>Quantity · <span style={{ color: '#c9c4d8' }}>Children in Group</span></p>
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <label style={labelStyle}>Client's Name *</label>
-              <input type="text" value={childName} onChange={e => setChildName(e.target.value)}
-                placeholder="e.g. Jamie Mwangi" autoFocus
-                style={{ ...inputStyle, borderColor: nameConflict ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.08)' }} />
-              {nameConflict && (
-                <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <AlertTriangle size={16} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', margin: '0 0 3px' }}>Name already active</p>
-                    <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>
-                      <strong style={{ color: '#f0f2f8' }}>{nameConflict.child_name}</strong> (age {nameConflict.age}) checked in at {fmtTime(nameConflict.check_in_time)}, exits {fmtTime(nameConflict.exit_time)}.
-                      Please add something to tell them apart — e.g. <em style={{ color: '#d1d5db' }}>{childName.trim()} B</em> or include a surname.
-                    </p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Number of Kids</p>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Select total count</p>
+            </div>
+            <Stepper large value={kidCount}
+              onDec={() => handleKidCountChange(Math.max(1, kidCount - 1))}
+              onInc={() => handleKidCountChange(Math.min(20, kidCount + 1))} />
+          </div>
+        </div>
+
+        {/* ── SECTION 2: DURATION ─────────────────────────────────────── */}
+        <p style={{ ...secLabel, marginTop: 8 }}>Duration</p>
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+            <div>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Base playtime</p>
+            </div>
+            <Stepper large value={hours} onDec={() => setHours(v => Math.max(1, v - 1))} onInc={() => setHours(v => Math.min(8, v + 1))} />
+          </div>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Bonus Time</p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[0, 10, 20, 30, 40].map(m => (
+              <button key={m} onClick={() => setBonusMins(bonusMins === m ? 0 : m)}
+                style={{
+                  padding: '10px 18px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                  fontSize: 15, fontWeight: 700,
+                  background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : '#282a32',
+                  color: bonusMins === m ? '#fff' : '#c9c4d8',
+                  transition: 'all 0.12s',
+                  transform: bonusMins === m ? 'scale(1.05)' : 'scale(1)',
+                }}>
+                {m === 0 ? 'None' : `+${m}m`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── SECTION 3: IDENTIFICATION ───────────────────────────────── */}
+        <p style={{ ...secLabel, marginTop: 8 }}>
+          Identification ·{' '}
+          <span style={{ color: '#c9c4d8' }}>
+            {kidCount === 1 ? 'Quick Description' : `Describe Each Kid (${kidCount} total)`}
+          </span>
+        </p>
+
+        {/* Kid tab switcher — only shown when 2+ kids */}
+        {kidCount > 1 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
+            {kidDescs.map((desc, i) => {
+              const isActive = i === activeKid;
+              const accent = kidColors[i % kidColors.length];
+              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+              return (
+                <button key={i} className="kid-tab" onClick={() => setActiveKid(i)}
+                  style={{
+                    flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                    background: isActive ? '#1d1f28' : '#0c0e16',
+                    outline: isActive ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
+                    outlineOffset: 0,
+                    transition: 'all 0.15s',
+                  }}>
+                  {/* Kid number circle */}
+                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
                   </div>
-                </div>
-              )}
-            </div>
-            <div>
-              <label style={labelStyle}>Age *</label>
-              <input type="number" value={age} onChange={e => setAge(e.target.value)}
-                placeholder="e.g. 8 (or 25 for adults)" min="1" max="99" inputMode="numeric" style={{ ...inputStyle, width: 120 }} />
-            </div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>
+                    Kid {i + 1}
+                  </span>
+                  {/* Green dot if this kid has at least one description */}
+                  {hasDesc && !isActive && (
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />
+                  )}
+                  {/* Color preview dots on the tab */}
+                  {desc.colors.length > 0 && (
+                    <div style={{ display: 'flex', gap: 3 }}>
+                      {desc.colors.slice(0, 3).map(cid => {
+                        const c = COLOR_OPTIONS.find(x => x.id === cid);
+                        return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
+                      })}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        )}
 
-        {/* Guardian Information (optional for adults) */}
-        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 16 }}>Guardian Information</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={labelStyle}>
-                Guardian's Name {!isGuardianRequired && <span style={{ fontWeight: 'normal', fontSize: 11, color: '#6b7280' }}>(optional for adults)</span>}
-                {isGuardianRequired && <span style={{ color: '#ef4444' }}> *</span>}
-              </label>
-              <input type="text" value={guardianName} onChange={e => setGuardianName(e.target.value)}
-                placeholder={isGuardianRequired ? "e.g. Mary Wanjiku" : "Optional for adults"} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Phone Number (optional)</label>
-              <input type="tel" value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)}
-                placeholder="e.g. 0712 345 678" inputMode="tel" style={inputStyle} />
-            </div>
-          </div>
-        </div>
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* DURATION & PAYMENT SECTION (modified) */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f0f2f8', marginBottom: 4 }}>Duration & Payment</p>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Select jump time</p>
-
-          {/* Preset options: 1h and 2h */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-            <button onClick={() => setDurationOption('1h')}
-              style={{
-                padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
-                border: `2px solid ${durationOption === '1h' ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
-                background: durationOption === '1h' ? 'rgba(99,102,241,0.15)' : '#1c1f29',
-              }}>
-              <p style={{ fontSize: 16, fontWeight: 700, color: durationOption === '1h' ? '#a5b4fc' : '#f0f2f8', margin: 0 }}>1 hour</p>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(price1h)}</p>
-              <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{isWeekend() ? 'Weekend rate' : 'Weekday rate'}</p>
-            </button>
-            <button onClick={() => setDurationOption('2h')}
-              style={{
-                padding: '16px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
-                border: `2px solid ${durationOption === '2h' ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
-                background: durationOption === '2h' ? 'rgba(99,102,241,0.15)' : '#1c1f29',
-              }}>
-              <p style={{ fontSize: 16, fontWeight: 700, color: durationOption === '2h' ? '#a5b4fc' : '#f0f2f8', margin: 0 }}>2 hours</p>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(price2h)}</p>
-            </button>
-          </div>
-
-          {/* Unlimited Day Pass */}
-          <button onClick={() => setDurationOption('unlimited')}
-            style={{
-              width: '100%', padding: '14px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
-              border: `2px solid ${durationOption === 'unlimited' ? '#f59e0b' : 'rgba(255,255,255,0.08)'}`,
-              background: durationOption === 'unlimited' ? 'rgba(245,158,11,0.15)' : '#1c1f29',
-              marginBottom: 16,
-            }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: durationOption === 'unlimited' ? '#fbbf24' : '#f0f2f8', margin: 0 }}>🎉 Unlimited Day Pass</p>
-            <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{fmtKSH(3000)} · All day jumping</p>
-          </button>
-
-          {/* Custom duration */}
-          <div style={{
-            borderTop: '1px solid rgba(255,255,255,0.06)',
-            paddingTop: 16, marginTop: 8,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <input type="checkbox" checked={durationOption === 'custom'} onChange={() => setDurationOption('custom')} />
-              <span style={{ fontSize: 13, color: '#f0f2f8' }}>Custom duration</span>
-            </div>
-            {durationOption === 'custom' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4, display: 'block' }}>Minutes</label>
-                  <input type="number" value={customMinutesVal} onChange={e => setCustomMinutesVal(e.target.value)}
-                    placeholder="e.g., 45" min="1" style={{ ...inputStyle, fontSize: 14, padding: '12px' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4, display: 'block' }}>Price (KSH)</label>
-                  <input type="number" value={customPriceVal} onChange={e => setCustomPriceVal(e.target.value)}
-                    placeholder="Amount" min="0" step="10" style={{ ...inputStyle, fontSize: 14, padding: '12px' }} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Summary of selected */}
-          {durationOption !== 'custom' && getSelectedDuration() && (
-            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(16,185,129,0.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 14, color: '#6b7280' }}>Amount to collect</span>
-              <span style={{ fontSize: 16, fontWeight: 700, color: '#10b981' }}>{fmtKSH(getSelectedDuration()!.price)}</span>
-            </div>
-          )}
-          {durationOption === 'custom' && customMinutesVal && customPriceVal && (
-            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(16,185,129,0.1)', borderRadius: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Duration: {customMinutesVal} min</span>
-                <span>Price: {fmtKSH(parseFloat(customPriceVal) || 0)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Notes (unchanged) */}
-        <div style={{ background: '#151820', borderRadius: 16, padding: '20px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <label style={labelStyle}>Notes (optional)</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="e.g. allergies, special needs, school group..."
-            rows={3}
-            style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+        {/* Description panel for active kid */}
+        <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16 }}>
+          <KidDescPanel
+            key={activeKid}
+            kidIndex={activeKid}
+            kidCount={kidCount}
+            desc={kidDescs[activeKid] ?? { tops: [], bottoms: [], colors: [] }}
+            onChange={desc => updateKidDesc(activeKid, desc)}
           />
         </div>
 
+        {/* Next kid shortcut — when 2+ kids and not on last */}
+        {kidCount > 1 && activeKid < kidCount - 1 && (
+          <button onClick={() => setActiveKid(activeKid + 1)}
+            style={{
+              width: '100%', padding: '14px', borderRadius: 14, border: 'none',
+              background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: 8, marginBottom: 16, transition: 'all 0.12s',
+            }}>
+            Next → Kid {activeKid + 2}
+          </button>
+        )}
+
+        {/* Progress indicator for groups */}
+        {kidCount > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+            {kidDescs.map((desc, i) => {
+              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+              const accent = kidColors[i % kidColors.length];
+              return (
+                <div key={i} style={{
+                  width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4,
+                  background: hasDesc ? accent : i === activeKid ? '#7B61FF' : '#282a32',
+                  transition: 'all 0.2s',
+                }} />
+              );
+            })}
+          </div>
+        )}
+
+        {/* Summary preview */}
+        <div style={{ background: '#1d1f28', borderRadius: 20, padding: '16px 18px', marginBottom: 16, display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Estimated End</p>
+            <p style={{ fontSize: 28, fontWeight: 800, color: '#00C853', margin: 0, lineHeight: 1 }}>{exitLabel}</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
+              {hours}h{bonusMins > 0 ? ` + ${bonusMins}m` : ''} · {kidCount} kid{kidCount !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Check-in</p>
+            <p style={{ fontSize: 22, fontWeight: 700, color: '#e1e1ed', margin: 0 }}>
+              {new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            </p>
+          </div>
+        </div>
+
         {error && (
-          <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.12)', borderRadius: 12, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
             <AlertTriangle size={16} color="#ef4444" />
             <span style={{ fontSize: 14, color: '#ef4444' }}>{error}</span>
           </div>
         )}
+      </div>
 
-        <button onClick={handleSubmit} disabled={saving}
-          style={{
-            padding: '18px', background: saving ? '#1c1f29' : '#6366f1',
-            border: 'none', borderRadius: 14, color: saving ? '#6b7280' : '#fff',
-            fontSize: 16, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
-            transition: 'all 0.15s',
-          }}>
-          {saving ? 'Checking in…' : `✓ Check In`}
-        </button>
+      {/* Fixed CTA */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #0c0e16 60%, transparent)', zIndex: 50 }}>
+        <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <button onClick={handleSubmit} disabled={saving}
+            style={{
+              width: '100%', padding: '20px', border: 'none', borderRadius: 20, cursor: saving ? 'not-allowed' : 'pointer',
+              background: saving ? '#282a32' : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)',
+              color: saving ? '#6b7280' : '#001a0a',
+              fontSize: 17, fontWeight: 800, letterSpacing: '0.04em',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              transition: 'all 0.15s',
+            }}
+            onMouseDown={e => { if (!saving) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
+            onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+          >
+            {saving ? 'Saving…' : (
+              <>
+                <CheckCircle size={22} />
+                CONFIRM CHECK-IN · {kidCount} Kid{kidCount !== 1 ? 's' : ''}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 // ─── Session card ─────────────────────────────────────────────────────────────
-function SessionCard({ session, onExit, onRefresh }: {
-  session: JumperSession; onExit: (id: number) => void; onRefresh: () => void;
+function SessionCard({ session, onExit }: {
+  session: JumperSession; onExit: (id: number) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const isActive = session.status === 'active';
   const { urgent, overdue } = isActive ? timeUntilExit(session.exit_time) : { urgent: false, overdue: false };
 
-  const borderColor = !isActive ? 'rgba(255,255,255,0.06)'
-    : overdue ? 'rgba(239,68,68,0.4)'
-      : urgent ? 'rgba(245,158,11,0.35)'
-        : 'rgba(16,185,129,0.25)';
+  // Parse per-kid descriptions if available
+  const kidDescs: KidDesc[] = useMemo(() => {
+    if (session.kid_descs) {
+      try { return JSON.parse(session.kid_descs) as KidDesc[]; } catch { }
+    }
+    // Single kid — use flat fields
+    return [{
+      tops: session.top_wear ? session.top_wear.split(',').filter(Boolean) : [],
+      bottoms: session.bottom_wear ? session.bottom_wear.split(',').filter(Boolean) : [],
+      colors: session.colors ? session.colors.split(',').filter(Boolean) : [],
+    }];
+  }, [session]);
 
-  const accentBg = !isActive ? 'rgba(107,114,128,0.1)'
-    : overdue ? 'rgba(239,68,68,0.1)'
-      : urgent ? 'rgba(245,158,11,0.1)'
-        : 'rgba(16,185,129,0.1)';
+  const accentColor = !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#00C853';
+  const borderColor = !isActive ? 'rgba(255,255,255,0.05)'
+    : overdue ? 'rgba(239,68,68,0.35)'
+      : urgent ? 'rgba(245,158,11,0.3)'
+        : 'rgba(0,200,83,0.2)';
+
+  const kidAccents = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
+    '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
+
+  // For multi-kid: show a compact colour+clothing summary per kid
+  const hasAnyDesc = kidDescs.some(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0);
 
   return (
     <div style={{
-      background: '#151820', borderRadius: 16,
+      background: '#1d1f28', borderRadius: 18,
       border: `1px solid ${borderColor}`,
-      padding: '16px 18px', transition: 'border-color 0.3s',
+      overflow: 'hidden', transition: 'border-color 0.3s',
+      fontFamily: 'Inter, sans-serif',
     }}>
-      {/* Top row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <div>
-          <p style={{ fontSize: 18, fontWeight: 700, color: '#f0f2f8', margin: '0 0 2px' }}>{session.child_name}</p>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Age {session.age} · Guardian: {session.guardian_name}</p>
-          {session.guardian_phone && <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>{session.guardian_phone}</p>}
+      {/* Main row — always visible */}
+      <div style={{ padding: '14px 16px' }}>
+        {/* Row 1: Kid count badge + times + status */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: 'rgba(123,97,255,0.2)', borderRadius: 10, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 15 }}>🧒</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: '#c9bfff' }}>×{session.kid_count}</span>
+            </div>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#e1e1ed' }}>{fmtTime(session.check_in_time)}</span>
+              <span style={{ fontSize: 13, color: '#6b7280', margin: '0 6px' }}>→</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: accentColor }}>{fmtTime(session.exit_time)}</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+              background: `${accentColor}1a`, color: accentColor,
+              textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+            }}>
+              {!isActive ? 'Exited' : overdue ? '⚠ Overdue' : urgent ? 'Leaving soon' : 'Jumping'}
+            </span>
+            {/* Expand toggle when multi-kid */}
+            {session.kid_count > 1 && hasAnyDesc && (
+              <button onClick={() => setExpanded(p => !p)}
+                style={{ background: '#282a32', border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-            background: accentBg,
-            color: !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#10b981',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>
-            {!isActive ? 'Exited' : overdue ? 'Overdue' : urgent ? 'Leaving soon' : 'Jumping'}
-          </span>
-        </div>
+
+        {/* Row 2: Timer + duration */}
+        {isActive && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <LiveTimer exitTime={session.exit_time} status={session.status} />
+            <span style={{ fontSize: 12, color: '#4a4d5e' }}>·</span>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {session.duration_hours}h{session.bonus_minutes > 0 ? ` +${session.bonus_minutes}m` : ''}
+            </span>
+          </div>
+        )}
+
+        {/* Row 3: Compact description summary */}
+        {hasAnyDesc && (
+          session.kid_count === 1 ? (
+            // Single kid — show inline
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {kidDescs[0].colors.map(cid => {
+                const c = COLOR_OPTIONS.find(x => x.id === cid);
+                return c ? <div key={cid} style={{ width: 16, height: 16, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} /> : null;
+              })}
+              {[...kidDescs[0].tops, ...kidDescs[0].bottoms].length > 0 && (
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                  {[
+                    ...kidDescs[0].tops.map(id => TOP_WEAR_OPTIONS.find(o => o.id === id)?.label),
+                    ...kidDescs[0].bottoms.map(id => BOTTOM_WEAR_OPTIONS.find(o => o.id === id)?.label),
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              )}
+            </div>
+          ) : (
+            // Multi-kid — show per-kid colour dots in a row
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {kidDescs.map((desc, i) => {
+                const accent = kidAccents[i % kidAccents.length];
+                const hasKidDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#0c0e16', borderRadius: 10, padding: '5px 8px' }}>
+                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+                    </div>
+                    {hasKidDesc ? (
+                      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                        {desc.colors.slice(0, 2).map(cid => {
+                          const c = COLOR_OPTIONS.find(x => x.id === cid);
+                          return c ? <div key={cid} style={{ width: 12, height: 12, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
+                        })}
+                        {(desc.tops[0] || desc.bottoms[0]) && (
+                          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 2 }}>
+                            {TOP_WEAR_OPTIONS.find(o => o.id === desc.tops[0])?.icon || BOTTOM_WEAR_OPTIONS.find(o => o.id === desc.bottoms[0])?.icon}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#4a4d5e' }}>—</span>
+                    )}
+                  </div>
+                );
+              })}
+              <span style={{ fontSize: 11, color: '#4a4d5e' }}>{expanded ? '▲ hide' : '▼ details'}</span>
+            </div>
+          )
+        )}
       </div>
 
-      {/* Time info */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-        <div>
-          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Checked in</p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{fmtTime(session.check_in_time)}</p>
+      {/* Expanded per-kid detail — multi only */}
+      {session.kid_count > 1 && expanded && hasAnyDesc && (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10, background: '#161820' }}>
+          {kidDescs.map((desc, i) => {
+            const accent = kidAccents[i % kidAccents.length];
+            const clothing = [
+              ...desc.tops.map(id => TOP_WEAR_OPTIONS.find(o => o.id === id)?.label),
+              ...desc.bottoms.map(id => BOTTOM_WEAR_OPTIONS.find(o => o.id === id)?.label),
+            ].filter(Boolean);
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Kid number */}
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+                </div>
+                {/* Colour dots */}
+                <div style={{ display: 'flex', gap: 5 }}>
+                  {desc.colors.length > 0 ? desc.colors.map(cid => {
+                    const c = COLOR_OPTIONS.find(x => x.id === cid);
+                    return c ? (
+                      <div key={cid} style={{ width: 18, height: 18, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} />
+                    ) : null;
+                  }) : <span style={{ fontSize: 12, color: '#4a4d5e' }}>No colors</span>}
+                </div>
+                {/* Clothing text */}
+                {clothing.length > 0 && (
+                  <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>{clothing.join(' · ')}</span>
+                )}
+                {clothing.length === 0 && desc.colors.length === 0 && (
+                  <span style={{ fontSize: 12, color: '#4a4d5e', fontStyle: 'italic' }}>No description added</span>
+                )}
+              </div>
+            );
+          })}
         </div>
-        <div>
-          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Exit by</p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{fmtTime(session.exit_time)}</p>
-        </div>
-        <div>
-          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Duration</p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: '#f0f2f8', margin: 0 }}>{session.duration_minutes} min</p>
-        </div>
-        <div>
-          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 2px' }}>Paid</p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: '#10b981', margin: 0 }}>{fmtKSH(session.amount_paid)}</p>
-        </div>
-      </div>
-
-      {/* Countdown */}
-      {isActive && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: accentBg, borderRadius: 8 }}>
-          <LiveTimer exitTime={session.exit_time} status={session.status} />
-        </div>
-      )}
-
-      {session.notes && (
-        <p style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic', marginBottom: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
-          Note: {session.notes}
-        </p>
       )}
 
       {/* Exit button */}
       {isActive && (
-        <button onClick={() => onExit(session.id)}
-          style={{ width: '100%', padding: '12px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: '#ef4444', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.15s' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-        >
-          <LogOut size={15} /> Mark as Exited
-        </button>
+        <div style={{ padding: '0 16px 14px' }}>
+          <button onClick={() => onExit(session.id)}
+            style={{
+              width: '100%', padding: '11px', background: 'transparent',
+              border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12,
+              color: '#ef4444', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all 0.12s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+            onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
+            onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+          >
+            <LogOut size={15} /> Mark as Exited
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
 // ─── Main Trampoline App ───────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Trampoline Records & Analytics View
-// ─────────────────────────────────────────────────────────────────────────────
-function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
-  const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('today');
-  const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'exited'>('all');
-
-  const { rangeStart, rangeEnd } = useMemo(() => {
-    const now = new Date();
-    if (period === 'today') return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
-    if (period === 'week') return { rangeStart: startOfWeek(now, { weekStartsOn: 1 }), rangeEnd: endOfWeek(now, { weekStartsOn: 1 }) };
-    if (period === 'month') return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) };
-    const d = parseISO(customDate);
-    return { rangeStart: startOfDay(d), rangeEnd: endOfDay(d) };
-  }, [period, customDate]);
-
-  const filtered = useMemo(() => {
-    return allSessions.filter(s => {
-      const t = parseISO(s.check_in_time);
-      if (t < rangeStart || t > rangeEnd) return false;
-      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        return (
-          s.child_name.toLowerCase().includes(q) ||
-          s.guardian_name.toLowerCase().includes(q) ||
-          s.notes.toLowerCase().includes(q) ||
-          String(s.age).includes(q)
-        );
-      }
-      return true;
-    });
-  }, [allSessions, rangeStart, rangeEnd, statusFilter, search]);
-
-  // Analytics data — sessions per hour bucket for the period
-  const chartData = useMemo(() => {
-    if (period === 'today' || period === 'custom') {
-      // Hourly breakdown for single day
-      return Array.from({ length: 14 }, (_, i) => {
-        const hour = i + 7; // 7am – 8pm
-        const count = filtered.filter(s => {
-          const h = parseISO(s.check_in_time).getHours();
-          return h === hour;
-        }).length;
-        const rev = filtered.filter(s => parseISO(s.check_in_time).getHours() === hour)
-          .reduce((sum, s) => sum + s.amount_paid, 0);
-        return { label: `${hour > 12 ? hour - 12 : hour}${hour >= 12 ? 'pm' : 'am'}`, sessions: count, revenue: rev };
-      });
-    }
-    // Daily breakdown for week/month
-    const days = period === 'week' ? 7 : 30;
-    return Array.from({ length: days }, (_, i) => {
-      const day = subDays(rangeEnd, days - 1 - i);
-      const ds = startOfDay(day), de = endOfDay(day);
-      const daySessions = allSessions.filter(s => {
-        const t = parseISO(s.check_in_time);
-        return t >= ds && t <= de;
-      });
-      return {
-        label: format(day, days === 7 ? 'EEE' : 'dd'),
-        sessions: daySessions.length,
-        revenue: daySessions.reduce((sum, s) => sum + s.amount_paid, 0),
-      };
-    });
-  }, [filtered, allSessions, period, rangeStart, rangeEnd]);
-
-  const totalRevenue = filtered.reduce((s, r) => s + r.amount_paid, 0);
-  const totalSessions = filtered.length;
-  const avgDuration = filtered.length > 0
-    ? Math.round(filtered.reduce((s, r) => s + r.duration_minutes, 0) / filtered.length)
-    : 0;
-  const activeCount = filtered.filter(s => s.status === 'active').length;
-
-  const exportCSV = () => {
-    const headers = ['Date', 'Check-in Time', 'Exit Time', 'Child Name', 'Age', 'Guardian', 'Phone', 'Duration (min)', 'Amount (KSH)', 'Status', 'Notes'];
-    const rows = filtered.map(s => [
-      format(parseISO(s.check_in_time), 'yyyy-MM-dd'),
-      format(parseISO(s.check_in_time), 'HH:mm'),
-      format(parseISO(s.exit_time), 'HH:mm'),
-      s.child_name, s.age, s.guardian_name, s.guardian_phone,
-      s.duration_minutes, s.amount_paid, s.status, s.notes,
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `jumpzone-records-${period === 'custom' ? customDate : period}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const inp: React.CSSProperties = {
-    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10, padding: '10px 14px', color: '#f0f2f8',
-    fontSize: 14, outline: 'none', width: '100%',
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-      {/* Period filter bar */}
-      <div style={{ background: '#151820', borderRadius: 14, padding: '14px 16px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        {(['today', 'week', 'month', 'custom'] as const).map(p => (
-          <button key={p} onClick={() => setPeriod(p)}
-            style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: period === p ? '#6366f1' : '#1c1f29', color: period === p ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
-            {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Pick Date'}
-          </button>
-        ))}
-        {period === 'custom' && (
-          <input type="date" value={customDate} max={format(new Date(), 'yyyy-MM-dd')}
-            onChange={e => setCustomDate(e.target.value)}
-            style={{ ...inp, width: 'auto', padding: '7px 12px', fontSize: 13, cursor: 'pointer' }} />
-        )}
-        <button onClick={exportCSV}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: '#1c1f29', color: '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <Download size={14} /> Export CSV
-        </button>
-      </div>
-
-      {/* Summary stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-        {[
-          { label: 'Total Sessions', value: String(totalSessions), color: '#6366f1' },
-          { label: 'Revenue', value: `KSH ${totalRevenue.toLocaleString()}`, color: '#10b981' },
-          { label: 'Avg Duration', value: `${avgDuration} min`, color: '#f59e0b' },
-          { label: 'Still Active', value: String(activeCount), color: '#ef4444' },
-        ].map(c => (
-          <div key={c.label} style={{ background: '#151820', borderRadius: 12, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
-            <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
-            <p style={{ fontSize: 16, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Mini bar chart */}
-      {chartData.some(d => d.sessions > 0) && (
-        <div style={{ background: '#151820', borderRadius: 14, padding: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {period === 'today' || period === 'custom' ? 'Sessions by Hour' : 'Sessions by Day'}
-          </p>
-          <div style={{ height: 100 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} barSize={period === 'month' ? 8 : 14}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
-                <Tooltip
-                  contentStyle={{
-                    background: '#1c1f29',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 8,
-                    color: '#f0f2f8',
-                    fontSize: 12
-                  }}
-                  formatter={(v, name) => {
-                    const key = String(name ?? '');
-                    const isRevenue = key === 'revenue';
-                    return [isRevenue ? `KSH ${v}` : v, isRevenue ? 'Revenue' : 'Sessions'];
-                  }}
-                />
-                <Bar dataKey="sessions" fill="#6366f1" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Search + status filter */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, guardian, age, notes…"
-            style={{ ...inp, paddingLeft: 36 }}
-          />
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }}>
-            <Filter size={14} />
-          </span>
-        </div>
-        {(['all', 'active', 'exited'] as const).map(sf => (
-          <button key={sf} onClick={() => setStatusFilter(sf)}
-            style={{
-              padding: '10px 14px',
-              borderRadius: 10,
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 600,
-              background: statusFilter === sf
-                ? (sf === 'active' ? 'rgba(16,185,129,0.15)' : sf === 'exited' ? 'rgba(107,114,128,0.15)' : '#1c1f29')
-                : '#151820',
-              color: statusFilter === sf
-                ? (sf === 'active' ? '#10b981' : sf === 'exited' ? '#9ca3af' : '#fff')
-                : '#6b7280',
-              border: statusFilter === sf
-                ? `1px solid ${sf === 'active' ? 'rgba(16,185,129,0.3)' : sf === 'exited' ? 'rgba(107,114,128,0.3)' : 'rgba(99,102,241,0.4)'}`
-                : '1px solid transparent',
-              transition: 'all 0.15s',
-            }}>
-            {sf === 'all' ? 'All' : sf === 'active' ? 'Active' : 'Exited'}
-          </button>
-        ))}
-      </div>
-
-      {/* Records table */}
-      {filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#6b7280', background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Users size={36} color="#374151" style={{ margin: '0 auto 12px' }} />
-          <p style={{ fontSize: 15, color: '#4b5563', marginBottom: 6 }}>No records found</p>
-          <p style={{ fontSize: 13 }}>Try adjusting the period or search filter</p>
-        </div>
-      ) : (
-        <div style={{ background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-          {/* Table header */}
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 580 }}>
-              <thead>
-                <tr style={{ background: '#1c1f29' }}>
-                  {['Time In', 'Child', 'Age', 'Guardian', 'Duration', 'Paid', 'Status'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s, i) => {
-                  const isActive = s.status === 'active';
-                  const { overdue, urgent } = isActive ? timeUntilExit(s.exit_time) : { overdue: false, urgent: false };
-                  return (
-                    <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
-                        <div>{fmtTime(s.check_in_time)}</div>
-                        <div style={{ fontSize: 11, color: '#4b5563' }}>{format(parseISO(s.check_in_time), 'MMM d')}</div>
-                      </td>
-                      <td style={{ padding: '11px 14px', fontWeight: 600, color: '#f0f2f8', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {s.child_name}
-                        {s.notes && <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.notes}</div>}
-                      </td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af' }}>{s.age}</td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <div>{s.guardian_name}</div>
-                        {s.guardian_phone && <div style={{ fontSize: 11, color: '#4b5563' }}>{s.guardian_phone}</div>}
-                      </td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{s.duration_minutes} min</td>
-                      <td style={{ padding: '11px 14px', color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>KSH {s.amount_paid}</td>
-                      <td style={{ padding: '11px 14px' }}>
-                        <span style={{
-                          fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
-                          background: !isActive ? 'rgba(107,114,128,0.15)' : overdue ? 'rgba(239,68,68,0.15)' : urgent ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)',
-                          color: !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#10b981',
-                        }}>
-                          {!isActive ? 'Exited' : overdue ? 'Overdue' : urgent ? 'Soon' : 'Active'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {/* Totals row */}
-              <tfoot>
-                <tr style={{ background: '#1c1f29', borderTop: '2px solid rgba(255,255,255,0.08)' }}>
-                  <td colSpan={5} style={{ padding: '10px 14px', fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Total · {filtered.length} record{filtered.length !== 1 ? 's' : ''}
-                  </td>
-                  <td style={{ padding: '10px 14px', color: '#10b981', fontWeight: 800, fontSize: 14 }}>
-                    KSH {totalRevenue.toLocaleString()}
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<'home' | 'checkin' | 'history'>('home');
-  const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
   const [sessions, setSessions] = useState<JumperSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'active' | 'all'>('active');
-  const [liveSearch, setLiveSearch] = useState('');
   const [alertShown, setAlertShown] = useState<Set<number>>(new Set());
   const tickRef = useRef(0);
 
@@ -3666,47 +3686,25 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   }, [sessions, alertShown]);
 
   const handleExit = async (id: number) => {
-    await supabase.from('jumper_sessions').update({ status: 'exited' }).eq('id', id);
+    await supabase.from('jumper_sessions').update({
+      status: 'exited',
+      actual_exit_time: new Date().toISOString(),
+    }).eq('id', id);
     fetchSessions();
   };
-
-  const [currentTime, setCurrentTime] = useState('');
-
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const active = sessions.filter(s => s.status === 'active');
   const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
   const urgentSessions = active.filter(s => { const { urgent, overdue } = timeUntilExit(s.exit_time); return urgent && !overdue; });
-  const todayRevenue = sessions
+  const todayKids = sessions
     .filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString())
-    .reduce((sum, s) => sum + s.amount_paid, 0);
-
-
-  const displayed = useMemo(() => {
-    if (view === 'checkin') return [];   // placeholder, won't be used
-    const base = tab === 'active' ? active : sessions.filter(s =>
-      new Date(s.check_in_time).toDateString() === new Date().toDateString()
-    );
-    if (!liveSearch.trim()) return base;
-    const q = liveSearch.toLowerCase();
-    return base.filter(s =>
-      s.child_name.toLowerCase().includes(q) ||
-      s.guardian_name.toLowerCase().includes(q) ||
-      s.notes.toLowerCase().includes(q) ||
-      String(s.age).includes(q)
-    );
-  }, [view, tab, active, sessions, liveSearch]);   // add `view` to dependencies
+    .reduce((sum, s) => sum + s.kid_count, 0);
 
   if (view === 'checkin') {
     return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
   }
+
+  const displayed = tab === 'active' ? active : sessions;
 
   return (
     <>
@@ -3736,160 +3734,102 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Trampoline Park · {new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Alert badges — only show on live tab */}
-            {mainTab === 'live' && overdueSessions.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
-                <Bell size={13} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
-                <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {overdueSessions.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
+                <Bell size={14} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
+                <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length} overdue</span>
               </div>
             )}
-            {mainTab === 'live' && urgentSessions.length > 0 && overdueSessions.length === 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
-                <Clock size={13} color="#f59e0b" />
-                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length}</span>
+            {urgentSessions.length > 0 && overdueSessions.length === 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
+                <Clock size={14} color="#f59e0b" />
+                <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length} leaving soon</span>
               </div>
             )}
-            {/* Main tab switcher */}
-            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
-              {(['live', 'records'] as const).map(t => (
-                <button key={t} onClick={() => setMainTab(t)}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: mainTab === t ? '#6366f1' : 'transparent', color: mainTab === t ? '#fff' : '#6b7280', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
-                  {t === 'live' ? 'Live' : 'Records'}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </div>
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px 100px' }}>
 
-        {/* Records tab */}
-        {mainTab === 'records' && (
-          <TrampolineRecords allSessions={sessions} />
-        )}
+        {/* Stats row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
+          {[
+            { label: 'Groups jumping', value: String(active.length), color: '#00C853' },
+            { label: 'Kids jumping now', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7B61FF' },
+            { label: 'Kids today', value: String(todayKids), color: '#f59e0b' },
+          ].map(c => (
+            <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+              <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
+              <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
+            </div>
+          ))}
+        </div>
 
-        {/* Live tab */}
-        {mainTab === 'live' && <>
+        {/* Alert banners */}
+        {overdueSessions.map(s => (
+          <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
+            <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>Group of {s.kid_count} is overdue!</p>
+              <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
+            </div>
+          </div>
+        ))}
 
-          {/* Stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
-            {[
-              { label: 'Jumping now', value: String(active.length), color: '#10b981' },
-              { label: "Today's sessions", value: String(sessions.filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString()).length), color: '#6366f1' },
-              { label: "Today's revenue", value: `KSH ${todayRevenue}`, color: '#f59e0b' },
-            ].map(c => (
-              <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
-                <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
-                <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
-              </div>
+        {urgentSessions.map(s => (
+          <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>Group of {s.kid_count} leaving soon</p>
+              <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
+            </div>
+          </div>
+        ))}
+
+        {/* Tab filter */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {(['active', 'all'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+              {t === 'active' ? `Active (${active.length})` : 'All Today'}
+            </button>
+          ))}
+        </div>
+
+        {/* Sessions list */}
+        {loading ? (
+          <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
+        ) : displayed.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
+            <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
+            <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+              {tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
+            </p>
+            <p style={{ fontSize: 14 }}>Tap the button below to check in a child</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {displayed.map(s => (
+              <SessionCard key={s.id} session={s} onExit={handleExit} onRefresh={fetchSessions} />
             ))}
           </div>
-
-          {/* Alert banners */}
-          {overdueSessions.map(s => (
-            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
-              <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>{s.child_name} is overdue!</p>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)}</p>
-              </div>
-            </div>
-          ))}
-
-          {urgentSessions.map(s => (
-            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>{s.child_name} leaving soon</p>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · Guardian: {s.guardian_name}</p>
-              </div>
-            </div>
-          ))}
-
-          {/* Tab filter + search */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {(['active', 'all'] as const).map(t => (
-                <button key={t} onClick={() => { setTab(t); setLiveSearch(''); }}
-                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
-                  {t === 'active' ? `Active (${active.length})` : 'All Today'}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#1c1f29', padding: '6px 14px', borderRadius: 20, border: '1px solid rgba(239,68,68,0.6)' }}>
-              <Clock size={14} color="#ef4444" />
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', fontFamily: 'monospace', letterSpacing: '0.5px' }}>{currentTime}</span>
-            </div>
-
-
-            {/* Search bar */}
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                value={liveSearch}
-                onChange={e => setLiveSearch(e.target.value)}
-                placeholder={tab === 'active' ? 'Search active — name, age, guardian, notes…' : 'Search today — name, age, guardian, notes…'}
-                style={{
-                  width: '100%', padding: '11px 14px 11px 38px', fontSize: 14,
-                  background: '#151820', border: '1px solid rgba(255,255,255,0.07)',
-                  borderRadius: 10, color: '#f0f2f8', outline: 'none', boxSizing: 'border-box',
-                  transition: 'border-color 0.15s',
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
-                onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}
-              />
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', pointerEvents: 'none' }}>
-                <Filter size={15} />
-              </span>
-              {liveSearch && (
-                <button onClick={() => setLiveSearch('')}
-                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 2, display: 'flex' }}>
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-            {liveSearch && (
-              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
-                {displayed.length} result{displayed.length !== 1 ? 's' : ''} for <span style={{ color: '#a5b4fc' }}>"{liveSearch}"</span>
-              </p>
-            )}
-          </div>
-
-          {/* Sessions list */}
-          {loading ? (
-            <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
-          ) : displayed.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
-              <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
-              <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
-                {liveSearch ? `No results for "${liveSearch}"` : tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
-              </p>
-              <p style={{ fontSize: 14 }}>{liveSearch ? 'Try a different name or age' : 'Tap the button below to check in a child'}</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {displayed.map(s => (
-                <SessionCard key={s.id} session={s} onExit={handleExit} onRefresh={fetchSessions} />
-              ))}
-            </div>
-          )}
-        </>}
+        )}
       </div>
 
-      {/* Big check-in button — fixed at bottom, only on live tab */}
-      {mainTab === 'live' && <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
+      {/* Big check-in button — fixed at bottom */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
         <div style={{ maxWidth: 600, margin: '0 auto' }}>
           <button onClick={() => setView('checkin')}
             style={{ width: '100%', padding: '18px', background: '#6366f1', border: 'none', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
           >
-            <UserPlus size={20} /> Check In a Client
+            <UserPlus size={20} /> Check In a Child
           </button>
         </div>
-      </div>}
+      </div>
     </>
   );
 }
@@ -4113,7 +4053,6 @@ export default function Dashboard() {
         users={arcadeUsers}
         onLogin={handleLogin}
         onFirstSetup={refreshUsers}
-        onBack={() => setAppSection('landing')}
       />
     );
   }
@@ -4207,7 +4146,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>© {new Date().getFullYear()} VR Arcade</span>
               <span style={{ opacity: 0.5 }}>|</span>
-              <span> <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
+              <span>Built by <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Charles</span></span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -4219,11 +4158,11 @@ export default function Dashboard() {
                 onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
                 onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
               >
-                For Help Email | charlesmacharia4564@gmail.com
+                charlesmacharia4564@gmail.com
               </a>
               <span style={{ opacity: 0.4 }}>|</span>
 
-              <span >Jump Xtreme</span>
+              <span >📞 +254 769 640 918</span>
             </div>
           </footer>
         </div>

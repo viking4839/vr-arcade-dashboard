@@ -18,7 +18,7 @@ import {
   Settings, Menu, X, Trash2, AlertTriangle,
   ChevronDown, ChevronUp, Calendar, Filter,
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
-  PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell,
+  PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell, Edit,
 } from 'lucide-react';
 
 
@@ -2918,9 +2918,11 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-kid description stored as array in JSON
 interface KidDesc {
-  tops: string[];    // selected top_wear ids
-  bottoms: string[]; // selected bottom_wear ids
-  colors: string[];  // selected color ids
+  tops: string[];
+  bottoms: string[];
+  colors: string[];
+  gender?: 'male' | 'female' | 'other';
+  isAdult?: boolean;
 }
 
 interface JumperSession {
@@ -3145,6 +3147,45 @@ function KidDescPanel({ kidIndex, kidCount, desc, onChange }: {
           {desc.colors.map(id => COLOR_OPTIONS.find(c => c.id === id)?.label).join(', ')}
         </p>
       )}
+
+      {/* Gender */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 16, marginBottom: 10 }}>Gender</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {(['male', 'female', 'other'] as const).map(g => (
+          <button key={g} onClick={() => onChange({ ...desc, gender: g })}
+            style={{
+              flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
+              background: desc.gender === g ? '#7B61FF' : '#282a32',
+              color: desc.gender === g ? '#fff' : '#c9c4d8',
+              fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
+            }}>
+            {g === 'male' ? '👦 Male' : g === 'female' ? '👧 Female' : '👤 Other'}
+          </button>
+        ))}
+      </div>
+
+      {/* Adult / Kid toggle */}
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 16, marginBottom: 10 }}>Age Group</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => onChange({ ...desc, isAdult: false })}
+          style={{
+            flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
+            background: desc.isAdult === false ? '#7B61FF' : '#282a32',
+            color: desc.isAdult === false ? '#fff' : '#c9c4d8',
+            fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
+          }}>
+          🧒 Kid
+        </button>
+        <button onClick={() => onChange({ ...desc, isAdult: true })}
+          style={{
+            flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
+            background: desc.isAdult === true ? '#7B61FF' : '#282a32',
+            color: desc.isAdult === true ? '#fff' : '#c9c4d8',
+            fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
+          }}>
+          👤 Adult
+        </button>
+      </div>
     </div>
   );
 }
@@ -3157,7 +3198,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
   const [hours, setHours] = useState(1);
   const [bonusMins, setBonusMins] = useState(0);
   // Per-kid descriptions — grows/shrinks as kidCount changes
-  const [kidDescs, setKidDescs] = useState<KidDesc[]>([{ tops: [], bottoms: [], colors: [] }]);
+  const [kidDescs, setKidDescs] = useState<KidDesc[]>([{ tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false }]);
   // Which kid slot is being described (tab index)
   const [activeKid, setActiveKid] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -3168,12 +3209,18 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
     setKidCount(newCount);
     setKidDescs(prev => {
       if (newCount > prev.length) {
-        // Add empty slots for new kids
-        return [...prev, ...Array(newCount - prev.length).fill(null).map(() => ({ tops: [], bottoms: [], colors: [] }))];
+        const emptyDesc: KidDesc = {
+          tops: [],
+          bottoms: [],
+          colors: [],
+          gender: 'other',
+          isAdult: false,
+        };
+        const additions = Array(newCount - prev.length).fill(emptyDesc);
+        return [...prev, ...additions];
       }
       return prev.slice(0, newCount);
     });
-    // If active kid tab is now out of range, snap to last
     setActiveKid(prev => Math.min(prev, newCount - 1));
   };
 
@@ -3256,11 +3303,11 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       <div style={{ padding: '20px 16px 130px', maxWidth: 480, margin: '0 auto' }}>
 
         {/* ── SECTION 1: QUANTITY ─────────────────────────────────────── */}
-        <p style={secLabel}>Quantity · <span style={{ color: '#c9c4d8' }}>Children in Group</span></p>
+        <p style={secLabel}>Quantity · <span style={{ color: '#c9c4d8' }}>Clients in Group</span></p>
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Number of Kids</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Number of Client</p>
               <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Select total count</p>
             </div>
             <Stepper large value={kidCount}
@@ -3329,6 +3376,16 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>
                     Kid {i + 1}
                   </span>
+                  {/* Gender icon on tab */}
+                  {desc.gender && desc.gender !== 'other' && (
+                    <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
+                      {desc.gender === 'male' ? '♂' : '♀'}
+                    </span>
+                  )}
+                  {/* Age icon on tab */}
+                  {desc.isAdult !== undefined && (
+                    <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
+                  )}
                   {/* Green dot if this kid has at least one description */}
                   {hasDesc && !isActive && (
                     <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />
@@ -3443,8 +3500,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 }
 
 // ─── Session card ─────────────────────────────────────────────────────────────
-function SessionCard({ session, onExit }: {
-  session: JumperSession; onExit: (id: number) => void;
+function SessionCard({ session, onExit, onEdit }: {
+  session: JumperSession;
+  onExit: (id: number) => void;
+  onEdit?: (id: number) => void;   // ← new
 }) {
   const [expanded, setExpanded] = useState(false);
   const isActive = session.status === 'active';
@@ -3505,6 +3564,21 @@ function SessionCard({ session, onExit }: {
             }}>
               {!isActive ? 'Exited' : overdue ? '⚠ Overdue' : urgent ? 'Leaving soon' : 'Jumping'}
             </span>
+            {onEdit && (
+              <button
+                onClick={() => onEdit(session.id)}
+                style={{
+                  background: '#282a32', border: 'none', borderRadius: 8,
+                  width: 28, height: 28, cursor: 'pointer',
+                  color: '#6b7280', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e1e1ed'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#6b7280'; }}
+              >
+                <Edit size={14} />
+              </button>
+            )}
             {/* Expand toggle when multi-kid */}
             {session.kid_count > 1 && hasAnyDesc && (
               <button onClick={() => setExpanded(p => !p)}
@@ -3531,6 +3605,31 @@ function SessionCard({ session, onExit }: {
           session.kid_count === 1 ? (
             // Single kid — show inline
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {/* Gender badge */}
+              {kidDescs[0].gender && kidDescs[0].gender !== 'other' && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                  background: kidDescs[0].gender === 'male' ? 'rgba(59,130,246,0.18)' : 'rgba(236,72,153,0.18)',
+                  color: kidDescs[0].gender === 'male' ? '#60a5fa' : '#f472b6',
+                  border: `1px solid ${kidDescs[0].gender === 'male' ? 'rgba(59,130,246,0.3)' : 'rgba(236,72,153,0.3)'}`,
+                  letterSpacing: '0.04em', whiteSpace: 'nowrap',
+                }}>
+                  {kidDescs[0].gender === 'male' ? '♂ Male' : '♀ Female'}
+                </span>
+              )}
+              {/* Age badge */}
+              {kidDescs[0].isAdult !== undefined && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                  background: kidDescs[0].isAdult ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.13)',
+                  color: kidDescs[0].isAdult ? '#fbbf24' : '#34d399',
+                  border: `1px solid ${kidDescs[0].isAdult ? 'rgba(245,158,11,0.28)' : 'rgba(16,185,129,0.25)'}`,
+                  letterSpacing: '0.04em', whiteSpace: 'nowrap',
+                }}>
+                  {kidDescs[0].isAdult ? '👤 Adult' : '🧒 Kid'}
+                </span>
+              )}
+              {/* Color dots */}
               {kidDescs[0].colors.map(cid => {
                 const c = COLOR_OPTIONS.find(x => x.id === cid);
                 return c ? <div key={cid} style={{ width: 16, height: 16, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} /> : null;
@@ -3555,6 +3654,18 @@ function SessionCard({ session, onExit }: {
                     <div style={{ width: 18, height: 18, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <span style={{ fontSize: 10, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
                     </div>
+                    {/* Gender icon */}
+                    {desc.gender && desc.gender !== 'other' && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6' }}>
+                        {desc.gender === 'male' ? '♂' : '♀'}
+                      </span>
+                    )}
+                    {/* Age icon */}
+                    {desc.isAdult !== undefined && (
+                      <span style={{ fontSize: 10, color: desc.isAdult ? '#fbbf24' : '#34d399' }}>
+                        {desc.isAdult ? '👤' : '🧒'}
+                      </span>
+                    )}
                     {hasKidDesc ? (
                       <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
                         {desc.colors.slice(0, 2).map(cid => {
@@ -3589,27 +3700,53 @@ function SessionCard({ session, onExit }: {
               ...desc.bottoms.map(id => BOTTOM_WEAR_OPTIONS.find(o => o.id === id)?.label),
             ].filter(Boolean);
             return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 {/* Kid number */}
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
                 </div>
-                {/* Colour dots */}
-                <div style={{ display: 'flex', gap: 5 }}>
-                  {desc.colors.length > 0 ? desc.colors.map(cid => {
-                    const c = COLOR_OPTIONS.find(x => x.id === cid);
-                    return c ? (
-                      <div key={cid} style={{ width: 18, height: 18, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} />
-                    ) : null;
-                  }) : <span style={{ fontSize: 12, color: '#4a4d5e' }}>No colors</span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Gender + Age badges row */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                    {desc.gender && desc.gender !== 'other' && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                        background: desc.gender === 'male' ? 'rgba(59,130,246,0.18)' : 'rgba(236,72,153,0.18)',
+                        color: desc.gender === 'male' ? '#60a5fa' : '#f472b6',
+                        border: `1px solid ${desc.gender === 'male' ? 'rgba(59,130,246,0.3)' : 'rgba(236,72,153,0.3)'}`,
+                        letterSpacing: '0.04em',
+                      }}>
+                        {desc.gender === 'male' ? '♂ Male' : '♀ Female'}
+                      </span>
+                    )}
+                    {desc.isAdult !== undefined && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                        background: desc.isAdult ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.13)',
+                        color: desc.isAdult ? '#fbbf24' : '#34d399',
+                        border: `1px solid ${desc.isAdult ? 'rgba(245,158,11,0.28)' : 'rgba(16,185,129,0.25)'}`,
+                        letterSpacing: '0.04em',
+                      }}>
+                        {desc.isAdult ? '👤 Adult' : '🧒 Kid'}
+                      </span>
+                    )}
+                  </div>
+                  {/* Colour dots + clothing */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {desc.colors.length > 0 ? desc.colors.map(cid => {
+                      const c = COLOR_OPTIONS.find(x => x.id === cid);
+                      return c ? (
+                        <div key={cid} style={{ width: 18, height: 18, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} />
+                      ) : null;
+                    }) : <span style={{ fontSize: 12, color: '#4a4d5e' }}>No colors</span>}
+                    {clothing.length > 0 && (
+                      <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>{clothing.join(' · ')}</span>
+                    )}
+                    {clothing.length === 0 && desc.colors.length === 0 && !desc.gender && desc.isAdult === undefined && (
+                      <span style={{ fontSize: 12, color: '#4a4d5e', fontStyle: 'italic' }}>No description added</span>
+                    )}
+                  </div>
                 </div>
-                {/* Clothing text */}
-                {clothing.length > 0 && (
-                  <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>{clothing.join(' · ')}</span>
-                )}
-                {clothing.length === 0 && desc.colors.length === 0 && (
-                  <span style={{ fontSize: 12, color: '#4a4d5e', fontStyle: 'italic' }}>No description added</span>
-                )}
               </div>
             );
           })}
@@ -3902,6 +4039,100 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
   );
 }
 
+const getAlertDescription = (session: JumperSession): string => {
+  if (session.kid_descs) {
+    try {
+      const descs: KidDesc[] = JSON.parse(session.kid_descs);
+      if (descs.length === 1) {
+        const d = descs[0];
+        const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
+        const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
+        const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
+        const clothing = [...tops, ...bottoms];
+        const genderLabel = d.gender === 'male' ? 'Male' : d.gender === 'female' ? 'Female' : '';
+        const ageLabel = d.isAdult ? 'Adult' : 'Kid';
+        const parts = [genderLabel, ageLabel, ...colors, ...clothing].filter(Boolean);
+        return parts.join(', ');
+      } else {
+        const described = descs.filter(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0).length;
+        return `${described}/${descs.length} kids described`;
+      }
+    } catch { return ''; }
+  }
+  const colors = session.colors?.split(',').map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean) ?? [];
+  const tops = session.top_wear?.split(',').map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean) ?? [];
+  const bottoms = session.bottom_wear?.split(',').map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean) ?? [];
+  const clothing = [...tops, ...bottoms];
+  return [...colors, ...clothing].join(', ');
+};
+
+function EditKidModal({ session, onClose, onSaved }: {
+  session: JumperSession;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [kidDescs, setKidDescs] = useState<KidDesc[]>(() => {
+    if (session.kid_descs) {
+      try { return JSON.parse(session.kid_descs); } catch { }
+    }
+    return [{
+      tops: session.top_wear?.split(',').filter(Boolean) || [],
+      bottoms: session.bottom_wear?.split(',').filter(Boolean) || [],
+      colors: session.colors?.split(',').filter(Boolean) || [],
+      gender: 'other',
+      isAdult: false,
+    }];
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const first = kidDescs[0] ?? { tops: [], bottoms: [], colors: [] };
+    const { error } = await supabase.from('jumper_sessions').update({
+      kid_descs: kidDescs.length > 1 ? JSON.stringify(kidDescs) : null,
+      top_wear: first.tops.join(','),
+      bottom_wear: first.bottoms.join(','),
+      colors: first.colors.join(','),
+    }).eq('id', session.id);
+    setSaving(false);
+    if (!error) {
+      onSaved();
+      onClose();
+    } else {
+      alert('Failed to update description');
+    }
+  };
+
+  const updateKidDesc = (idx: number, desc: KidDesc) => {
+    setKidDescs(prev => prev.map((d, i) => i === idx ? desc : d));
+  };
+
+  const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 500, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: '#e1e1ed', marginBottom: 16 }}>Edit Descriptions</h2>
+        {kidDescs.map((desc, i) => (
+          <div key={i} style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: kidColors[i % kidColors.length], display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#e1e1ed' }}>Kid {i + 1}</span>
+            </div>
+            <KidDescPanel kidIndex={i} kidCount={kidDescs.length} desc={desc} onChange={(d) => updateKidDesc(i, d)} />
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#282a32', color: '#c9c4d8', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#7B61FF', color: '#fff', cursor: 'pointer' }}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Trampoline App ───────────────────────────────────────────────────────
 function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<'home' | 'checkin' | 'history'>('home');
@@ -3912,6 +4143,36 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const tickRef = useRef(0);
   const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
   const [currentTime, setCurrentTime] = useState('');
+  const playAlertSound = useRef<((type: 'urgent' | 'overdue') => void) | null>(null);
+  const [editingSession, setEditingSession] = useState<JumperSession | null>(null);
+  const [liveSearch, setLiveSearch] = useState('');
+  const [colorFilter, setColorFilter] = useState<string[]>([]);
+  const [clothingFilter, setClothingFilter] = useState<string[]>([]);
+  const [genderFilter, setGenderFilter] = useState<string[]>([]);   // 'male' | 'female'
+  const [ageFilter, setAgeFilter] = useState<string[]>([]);         // 'adult' | 'kid'
+  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    // Create a simple beep using Web Audio
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    playAlertSound.current = (type: 'urgent' | 'overdue') => {
+      const freq = type === 'urgent' ? 880 : 440;
+      const duration = 0.3;
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.connect(gain);
+      gain.connect(audioCtx.destination);
+      oscillator.frequency.value = freq;
+      gain.gain.value = 0.2;
+      oscillator.start();
+      gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+      oscillator.stop(audioCtx.currentTime + duration);
+      // Resume if suspended (browser autoplay policy)
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    };
+  }, []);
 
   useEffect(() => {
     const updateTime = () => {
@@ -3921,6 +4182,19 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const scrollToSession = (id: number) => {
+    const el = cardRefs.current.get(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Temporary highlight
+      el.style.transition = 'box-shadow 0.2s';
+      el.style.boxShadow = '0 0 0 2px #7B61FF';
+      setTimeout(() => {
+        el.style.boxShadow = '';
+      }, 1500);
+    }
+  };
 
   const fetchSessions = useCallback(async () => {
     const { data } = await supabase
@@ -3960,18 +4234,29 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         (overdue && !alertShown.has(s.id * 1000 + 0))) {
         const key = s.id * 1000 + (overdue ? 0 : 5);
         setAlertShown(prev => new Set([...prev, key]));
+        if (playAlertSound.current) playAlertSound.current(overdue ? 'overdue' : 'urgent');
       }
+
     });
   }, [sessions, alertShown]);
 
   const handleExit = async (id: number) => {
+    const session = sessions.find(s => s.id === id);
+    if (session) {
+      const exitTime = new Date(session.exit_time);
+      const now = new Date();
+      const minutesEarly = Math.floor((exitTime.getTime() - now.getTime()) / 60000);
+      if (minutesEarly > 30) {
+        const confirmEarly = window.confirm(`This group still has ${minutesEarly} minutes left. Are you sure you want to exit them early?`);
+        if (!confirmEarly) return;
+      }
+    }
     await supabase.from('jumper_sessions').update({
       status: 'exited',
       actual_exit_time: new Date().toISOString(),
     }).eq('id', id);
     fetchSessions();
   };
-
   const active = sessions.filter(s => s.status === 'active');
   const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
   const urgentSessions = active.filter(s => { const { urgent, overdue } = timeUntilExit(s.exit_time); return urgent && !overdue; });
@@ -3979,11 +4264,76 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     .filter(s => new Date(s.check_in_time).toDateString() === new Date().toDateString())
     .reduce((sum, s) => sum + s.kid_count, 0);
 
+
+
+  const displayed = useMemo(() => {
+    const base = tab === 'active' ? active : sessions.filter(s =>
+      new Date(s.check_in_time).toDateString() === new Date().toDateString()
+    );
+    let filtered = base;
+
+    // Color and clothing filters
+    if (colorFilter.length > 0 || clothingFilter.length > 0) {
+      filtered = filtered.filter(s => {
+        let matches = false;
+        if (s.kid_descs) {
+          try {
+            const descs = JSON.parse(s.kid_descs);
+            for (const d of descs) {
+              if (colorFilter.length && colorFilter.some(c => d.colors.includes(c))) matches = true;
+              if (clothingFilter.length && clothingFilter.some(c => d.tops.includes(c) || d.bottoms.includes(c))) matches = true;
+              if (matches) break;
+            }
+          } catch { return false; }
+        } else {
+          const flatColors = s.colors?.split(',') || [];
+          const flatTops = s.top_wear?.split(',') || [];
+          const flatBottoms = s.bottom_wear?.split(',') || [];
+          if (colorFilter.length && colorFilter.some(c => flatColors.includes(c))) matches = true;
+          if (clothingFilter.length && clothingFilter.some(c => flatTops.includes(c) || flatBottoms.includes(c))) matches = true;
+        }
+        return matches;
+      });
+    }
+
+    // Gender filter
+    if (genderFilter.length > 0) {
+      filtered = filtered.filter(s => {
+        if (s.kid_descs) {
+          try {
+            const descs: KidDesc[] = JSON.parse(s.kid_descs);
+            return descs.some(d => d.gender && genderFilter.includes(d.gender));
+          } catch { return false; }
+        }
+        return false;
+      });
+    }
+
+    // Age filter (adult / kid)
+    if (ageFilter.length > 0) {
+      filtered = filtered.filter(s => {
+        if (s.kid_descs) {
+          try {
+            const descs: KidDesc[] = JSON.parse(s.kid_descs);
+            return descs.some(d => {
+              if (ageFilter.includes('adult') && d.isAdult === true) return true;
+              if (ageFilter.includes('kid') && d.isAdult !== true) return true;
+              return false;
+            });
+          } catch { return false; }
+        }
+        return false;
+      });
+    }
+
+    return filtered;
+  }, [tab, active, sessions, liveSearch, colorFilter, clothingFilter, genderFilter, ageFilter]);
+
   if (view === 'checkin') {
     return <CheckInForm onDone={() => { fetchSessions(); setView('home'); }} onCancel={() => setView('home')} activeSessions={active} />;
   }
 
-  const displayed = tab === 'active' ? active : sessions;
+
 
   return (
     <>
@@ -4029,23 +4379,8 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                 </button>
               ))}
             </div>
-            {/* Alert badges (only show on live tab) */}
-            {mainTab === 'live' && (
-              <>
-                {overdueSessions.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
-                    <Bell size={14} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
-                    <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length} overdue</span>
-                  </div>
-                )}
-                {urgentSessions.length > 0 && overdueSessions.length === 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
-                    <Clock size={14} color="#f59e0b" />
-                    <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length} leaving soon</span>
-                  </div>
-                )}
-              </>
-            )}
+
+
           </div>
         </div>
       </div>
@@ -4053,7 +4388,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       {mainTab === 'records' ? (
         <TrampolineRecords allSessions={sessions} />
       ) : (
-        <>
+        <div style={{ padding: '0 10px' }}>
           {/* Stats row */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10, marginTop: 10 }}>
             {[
@@ -4068,31 +4403,51 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
             ))}
           </div>
 
-          {/* Alert banners (already shown in header, but keep for emphasis) */}
-          {overdueSessions.map(s => (
-            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
-              <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>Group of {s.kid_count} is overdue!</p>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
-              </div>
-            </div>
-          ))}
+          {/* Alert badges (only show on live tab) */}
+          {mainTab === 'live' && (
+            <>
+              {overdueSessions.map(s => (
+                <div
+                  key={s.id}
+                  onClick={() => scrollToSession(s.id)}
+                  style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}
+                >
+                  <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>
+                      Group of {s.kid_count} is overdue!
+                    </p>
+                    <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>
+                      Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {urgentSessions.map(s => (
+                <div
+                  key={s.id}
+                  onClick={() => scrollToSession(s.id)}
+                  style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}
+                >
+                  <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>
+                      Group of {s.kid_count} leaving soon
+                    </p>
+                    <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>
+                      Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
-          {urgentSessions.map(s => (
-            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>Group of {s.kid_count} leaving soon</p>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
-              </div>
-            </div>
-          ))}
 
           {/* Tab filter (Active/All Today) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginLeft: 10, marginRight: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             {/* Tabs on the left */}
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 10 }}>
               {(['active', 'all'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)}
                   style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
@@ -4117,6 +4472,121 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
             </div>
           </div>
 
+          {/* Filter chips */}
+          <div style={{ marginTop: 8, marginBottom: 12, paddingLeft: 10, paddingRight: 10 }}>
+            {/* Active filters (removable tags) */}
+            {(colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {genderFilter.map(g => (
+                    <button key={g} onClick={() => setGenderFilter(prev => prev.filter(x => x !== g))}
+                      style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: g === 'male' ? 'rgba(59,130,246,0.22)' : 'rgba(236,72,153,0.22)', color: g === 'male' ? '#60a5fa' : '#f472b6', border: `1px solid ${g === 'male' ? 'rgba(59,130,246,0.4)' : 'rgba(236,72,153,0.4)'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {g === 'male' ? '♂ Male' : '♀ Female'} ✕
+                    </button>
+                  ))}
+                  {ageFilter.map(a => (
+                    <button key={a} onClick={() => setAgeFilter(prev => prev.filter(x => x !== a))}
+                      style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: a === 'adult' ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.15)', color: a === 'adult' ? '#fbbf24' : '#34d399', border: `1px solid ${a === 'adult' ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.28)'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {a === 'adult' ? '👤 Adult' : '🧒 Kid'} ✕
+                    </button>
+                  ))}
+                  {colorFilter.map(cid => {
+                    const c = COLOR_OPTIONS.find(opt => opt.id === cid);
+                    return c ? (
+                      <button key={cid} onClick={() => setColorFilter(prev => prev.filter(x => x !== cid))}
+                        style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: c.hex, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {c.label} ✕
+                      </button>
+                    ) : null;
+                  })}
+                  {clothingFilter.map(cid => {
+                    const opt = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(o => o.id === cid);
+                    return opt ? (
+                      <button key={cid} onClick={() => setClothingFilter(prev => prev.filter(x => x !== cid))}
+                        style={{ padding: '4px 10px', borderRadius: 16, fontSize: 11, fontWeight: 600, background: '#7B61FF', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {opt.icon} {opt.label} ✕
+                      </button>
+                    ) : null;
+                  })}
+                </div>
+                <button onClick={() => { setColorFilter([]); setClothingFilter([]); setGenderFilter([]); setAgeFilter([]); }}
+                  style={{ fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, marginLeft: 8 }}>
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Quick filter chips — Gender & Age row */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Gender:</span>
+              {([{ id: 'male', label: '♂ Male', bg: 'rgba(59,130,246,0.18)', activeBg: 'rgba(59,130,246,0.3)', color: '#60a5fa', border: 'rgba(59,130,246,0.4)' }, { id: 'female', label: '♀ Female', bg: 'rgba(236,72,153,0.18)', activeBg: 'rgba(236,72,153,0.3)', color: '#f472b6', border: 'rgba(236,72,153,0.4)' }]).map(g => (
+                <button key={g.id} onClick={() => setGenderFilter(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])}
+                  style={{
+                    padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
+                    background: genderFilter.includes(g.id) ? g.activeBg : '#1c1f29',
+                    color: genderFilter.includes(g.id) ? g.color : '#6b7280',
+                    border: genderFilter.includes(g.id) ? `1px solid ${g.border}` : '1px solid transparent',
+                    cursor: 'pointer', transition: 'all 0.12s',
+                  }}>
+                  {g.label}
+                </button>
+              ))}
+              <span style={{ color: '#2e3140', fontSize: 13, marginLeft: 4 }}>|</span>
+              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginLeft: 4 }}>Age:</span>
+              {([{ id: 'kid', label: '🧒 Kid', activeColor: '#34d399', activeBg: 'rgba(16,185,129,0.18)', activeBorder: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', activeColor: '#fbbf24', activeBg: 'rgba(245,158,11,0.18)', activeBorder: 'rgba(245,158,11,0.3)' }]).map(a => (
+                <button key={a.id} onClick={() => setAgeFilter(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])}
+                  style={{
+                    padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
+                    background: ageFilter.includes(a.id) ? a.activeBg : '#1c1f29',
+                    color: ageFilter.includes(a.id) ? a.activeColor : '#6b7280',
+                    border: ageFilter.includes(a.id) ? `1px solid ${a.activeBorder}` : '1px solid transparent',
+                    cursor: 'pointer', transition: 'all 0.12s',
+                  }}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick filter chips — Colors & Clothing row */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Color:</span>
+              {COLOR_OPTIONS.slice(0, 8).map(c => (
+                <button key={c.id} onClick={() => setColorFilter(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                  style={{
+                    padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                    background: colorFilter.includes(c.id) ? c.hex : '#1c1f29',
+                    color: colorFilter.includes(c.id) ? '#fff' : '#9ca3af',
+                    border: 'none', cursor: 'pointer', transition: 'all 0.12s',
+                  }}>
+                  {c.label}
+                </button>
+              ))}
+              <span style={{ color: '#2e3140', fontSize: 13 }}>|</span>
+              {[...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].slice(0, 6).map(opt => (
+                <button key={opt.id} onClick={() => setClothingFilter(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
+                  style={{
+                    padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                    background: clothingFilter.includes(opt.id) ? '#7B61FF' : '#1c1f29',
+                    color: clothingFilter.includes(opt.id) ? '#fff' : '#9ca3af',
+                    border: 'none', cursor: 'pointer', transition: 'all 0.12s',
+                  }}>
+                  {opt.icon} {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {liveSearch && (
+            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 8, paddingLeft: 10 }}>
+              {displayed.length} result{displayed.length !== 1 ? 's' : ''} for <span style={{ color: '#a5b4fc' }}>"{liveSearch}"</span>
+            </p>
+          )}
+          {(colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && !liveSearch && (
+            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 8, paddingLeft: 10 }}>
+              {displayed.length} session{displayed.length !== 1 ? 's' : ''} match selected filters
+            </p>
+          )}
+
           {/* Sessions list */}
           {loading ? (
             <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
@@ -4129,13 +4599,21 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               <p style={{ fontSize: 14 }}>Tap the button below to check in a child</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 10, paddingRight: 10, paddingBottom: 100 }}>
               {displayed.map(s => (
-                <SessionCard key={s.id} session={s} onExit={handleExit} />
+                <div
+                  key={s.id}
+                  ref={el => {
+                    if (el) cardRefs.current.set(s.id, el);
+                    else cardRefs.current.delete(s.id);
+                  }}
+                >
+                  <SessionCard session={s} onExit={handleExit} onEdit={(id) => setEditingSession(sessions.find(x => x.id === id) || null)} />
+                </div>
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Big check-in button — fixed at bottom */}
@@ -4147,10 +4625,18 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
             >
-              <UserPlus size={20} /> Check In a Child
+              <UserPlus size={20} /> Check In a Client
             </button>
           </div>
         </div>
+      )}
+
+      {editingSession && (
+        <EditKidModal
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSaved={() => { fetchSessions(); setEditingSession(null); }}
+        />
       )}
     </>
   );

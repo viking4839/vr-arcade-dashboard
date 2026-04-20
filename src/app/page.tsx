@@ -264,10 +264,11 @@ function ConfirmModal({ message, onConfirm, onCancel }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Login Screen — pick name → enter PIN
 // ─────────────────────────────────────────────────────────────────────────────
-function LoginScreen({ users, onLogin, onFirstSetup }: {
+function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
   users: ArcadeUser[];
   onLogin: (user: ArcadeUser) => void;
   onFirstSetup: () => void;
+  onBack: () => void;
 }) {
   const [step, setStep] = useState<'pick' | 'pin' | 'register'>('pick');
   const [selectedUser, setSelectedUser] = useState<ArcadeUser | null>(null);
@@ -380,6 +381,7 @@ function LoginScreen({ users, onLogin, onFirstSetup }: {
                 : 'Register with a name and a 4-digit PIN.'}
             </p>
           </div>
+
         </div>
 
         <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -512,7 +514,11 @@ function LoginScreen({ users, onLogin, onFirstSetup }: {
           </button>
         ))}
       </div>
+      <button type="button" onClick={onBack} style={{ marginTop: 8, padding: '10px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <ChevronLeft size={14} /> Back to Home
+      </button>
     </div>
+
   );
 }
 
@@ -3238,11 +3244,11 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </button>
           <div>
             <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Fast Check-in</p>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>VELOCITY PLAY</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
           </div>
         </div>
         <div style={{ background: '#1d1f28', borderRadius: 12, padding: '8px 14px', textAlign: 'right' }}>
-          <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Est. Exit</p>
+          <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Expected. Exit Time</p>
           <p style={{ fontSize: 18, fontWeight: 800, color: '#00C853', margin: 0 }}>{exitLabel}</p>
         </div>
       </div>
@@ -3634,6 +3640,268 @@ function SessionCard({ session, onExit }: {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Trampoline Records & Analytics View
+// ─────────────────────────────────────────────────────────────────────────────
+function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
+  const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'exited'>('all');
+
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const now = new Date();
+    if (period === 'today') return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
+    if (period === 'week') return { rangeStart: startOfWeek(now, { weekStartsOn: 1 }), rangeEnd: endOfWeek(now, { weekStartsOn: 1 }) };
+    if (period === 'month') return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) };
+    const d = parseISO(customDate);
+    return { rangeStart: startOfDay(d), rangeEnd: endOfDay(d) };
+  }, [period, customDate]);
+
+  const filtered = useMemo(() => {
+    return allSessions.filter(s => {
+      const t = parseISO(s.check_in_time);
+      if (t < rangeStart || t > rangeEnd) return false;
+      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const kidDescStr = s.kid_descs ? s.kid_descs.toLowerCase() : '';
+        const topWear = s.top_wear.toLowerCase();
+        const bottomWear = s.bottom_wear.toLowerCase();
+        const colors = s.colors.toLowerCase();
+        return kidDescStr.includes(q) || topWear.includes(q) || bottomWear.includes(q) || colors.includes(q);
+      }
+      return true;
+    });
+  }, [allSessions, rangeStart, rangeEnd, statusFilter, search]);
+
+  // Chart data
+  const chartData = useMemo(() => {
+    if (period === 'today' || period === 'custom') {
+      // Hourly breakdown for single day
+      return Array.from({ length: 14 }, (_, i) => {
+        const hour = i + 7; // 7am – 8pm
+        const count = filtered.filter(s => parseISO(s.check_in_time).getHours() === hour).length;
+        return { label: `${hour > 12 ? hour - 12 : hour}${hour >= 12 ? 'pm' : 'am'}`, groups: count };
+      });
+    }
+    const days = period === 'week' ? 7 : 30;
+    return Array.from({ length: days }, (_, i) => {
+      const day = subDays(rangeEnd, days - 1 - i);
+      const ds = startOfDay(day), de = endOfDay(day);
+      const count = allSessions.filter(s => {
+        const t = parseISO(s.check_in_time);
+        return t >= ds && t <= de;
+      }).length;
+      return { label: format(day, days === 7 ? 'EEE' : 'dd'), groups: count };
+    });
+  }, [filtered, allSessions, period, rangeStart, rangeEnd]);
+
+  const totalGroups = filtered.length;
+  const totalKids = filtered.reduce((sum, s) => sum + s.kid_count, 0);
+  const avgKids = totalGroups > 0 ? (totalKids / totalGroups).toFixed(1) : 0;
+
+  const exportCSV = () => {
+    const headers = ['Check-in Time', 'Exit Time', 'Kids', 'Duration', 'Status', 'Description'];
+    const rows = filtered.map(s => {
+      const descStr = s.kid_descs ? s.kid_descs : `${s.top_wear || ''} ${s.bottom_wear || ''} ${s.colors || ''}`.trim();
+      return [
+        fmtTime(s.check_in_time),
+        fmtTime(s.exit_time),
+        s.kid_count,
+        `${s.duration_hours}h${s.bonus_minutes > 0 ? ` +${s.bonus_minutes}m` : ''}`,
+        s.status,
+        descStr,
+      ];
+    });
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jumpzone-records-${period === 'custom' ? customDate : period}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const inpStyle: React.CSSProperties = {
+    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 10, padding: '10px 14px', color: '#f0f2f8', fontSize: 14,
+    outline: 'none', width: '100%',
+  };
+  const getReadableDescription = (session: JumperSession): string => {
+    // If we have per‑kid descriptions (JSON)
+    if (session.kid_descs) {
+      try {
+        const descs: KidDesc[] = JSON.parse(session.kid_descs);
+        if (descs.length === 1) {
+          const d = descs[0];
+          const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
+          const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
+          const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
+          const clothing = [...tops, ...bottoms];
+          return [...colors, ...clothing].join(', ') || 'No description';
+        } else {
+          const described = descs.filter(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0).length;
+          return `${described}/${descs.length} kids described`;
+        }
+      } catch {
+        return 'Invalid description data';
+      }
+    }
+    // Fallback for single kid (old flat fields)
+    const colors = session.colors?.split(',').map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean) ?? [];
+    const tops = session.top_wear?.split(',').map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean) ?? [];
+    const bottoms = session.bottom_wear?.split(',').map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean) ?? [];
+    const clothing = [...tops, ...bottoms];
+    return [...colors, ...clothing].join(', ') || 'No description';
+  };
+  return (
+
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Period filter bar */}
+      <div style={{ background: '#151820', borderRadius: 14, padding: '14px 16px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        {(['today', 'week', 'month', 'custom'] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)}
+            style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: period === p ? '#6366f1' : '#1c1f29', color: period === p ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+            {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Pick Date'}
+          </button>
+        ))}
+        {period === 'custom' && (
+          <input type="date" value={customDate} max={format(new Date(), 'yyyy-MM-dd')}
+            onChange={e => setCustomDate(e.target.value)}
+            style={{ ...inpStyle, width: 'auto', padding: '7px 12px', fontSize: 13, cursor: 'pointer' }} />
+        )}
+        <button onClick={exportCSV}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: '#1c1f29', color: '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <Download size={14} /> Export CSV
+        </button>
+      </div>
+
+      {/* Summary stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+        {[
+          { label: 'Total Groups', value: String(totalGroups), color: '#6366f1' },
+          { label: 'Total Kids', value: String(totalKids), color: '#10b981' },
+          { label: 'Avg Group Size', value: avgKids, color: '#f59e0b' },
+        ].map(c => (
+          <div key={c.label} style={{ background: '#151820', borderRadius: 12, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+            <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
+            <p style={{ fontSize: 20, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Mini bar chart */}
+      {chartData.some(d => d.groups > 0) && (
+        <div style={{ background: '#151820', borderRadius: 14, padding: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {period === 'today' || period === 'custom' ? 'Groups by Hour' : 'Groups by Day'}
+          </p>
+          <div style={{ height: 100 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} barSize={period === 'month' ? 8 : 14}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
+                <Tooltip contentStyle={{ background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#f0f2f8', fontSize: 12 }} />
+                <Bar dataKey="groups" fill="#6366f1" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Search + status filter */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search clothing description, colors, etc."
+            style={{ ...inpStyle, paddingLeft: 36 }}
+          />
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280' }}>
+            <Filter size={14} />
+          </span>
+        </div>
+        {(['all', 'active', 'exited'] as const).map(sf => (
+          <button key={sf} onClick={() => setStatusFilter(sf)}
+            style={{
+              padding: '10px 14px', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              background: statusFilter === sf ? (sf === 'active' ? 'rgba(16,185,129,0.15)' : sf === 'exited' ? 'rgba(107,114,128,0.15)' : '#1c1f29') : '#151820',
+              color: statusFilter === sf ? (sf === 'active' ? '#10b981' : sf === 'exited' ? '#9ca3af' : '#fff') : '#6b7280',
+              border: statusFilter === sf ? `1px solid ${sf === 'active' ? 'rgba(16,185,129,0.3)' : sf === 'exited' ? 'rgba(107,114,128,0.3)' : 'rgba(99,102,241,0.4)'}` : '1px solid transparent',
+              transition: 'all 0.15s',
+            }}>
+            {sf === 'all' ? 'All' : sf === 'active' ? 'Active' : 'Exited'}
+          </button>
+        ))}
+      </div>
+
+      {/* Records table */}
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#6b7280', background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <Users size={36} color="#374151" style={{ margin: '0 auto 12px' }} />
+          <p style={{ fontSize: 15, color: '#4b5563', marginBottom: 6 }}>No records found</p>
+          <p style={{ fontSize: 13 }}>Try adjusting the period or search filter</p>
+        </div>
+      ) : (
+        <div style={{ background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 580 }}>
+              <thead>
+                <tr style={{ background: '#1c1f29' }}>
+                  {['Time In', 'Exit By', 'Kids', 'Duration', 'Status', 'Description'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s, i) => {
+                  const isActive = s.status === 'active';
+                  const descStr = s.kid_descs ? s.kid_descs : `${s.top_wear || ''} ${s.bottom_wear || ''} ${s.colors || ''}`.trim();
+                  return (
+                    <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                        <div>{fmtTime(s.check_in_time)}</div>
+                        <div style={{ fontSize: 11, color: '#4b5563' }}>{format(parseISO(s.check_in_time), 'MMM d')}</div>
+                      </td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{fmtTime(s.exit_time)}</td>
+                      <td style={{ padding: '11px 14px', fontWeight: 600, color: '#e1e1ed' }}>{s.kid_count}</td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af' }}>{s.duration_hours}h{s.bonus_minutes > 0 ? ` +${s.bonus_minutes}m` : ''}</td>
+                      <td style={{ padding: '11px 14px' }}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
+                          background: !isActive ? 'rgba(107,114,128,0.15)' : 'rgba(0,200,83,0.15)',
+                          color: !isActive ? '#6b7280' : '#10b981',
+                        }}>{isActive ? 'Active' : 'Exited'}</span>
+                      </td>
+                      <td style={{ padding: '11px 14px', color: '#9ca3af', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {getReadableDescription(s)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#1c1f29', borderTop: '2px solid rgba(255,255,255,0.08)' }}>
+                  <td colSpan={2} style={{ padding: '10px 14px', fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Total · {filtered.length} group{filtered.length !== 1 ? 's' : ''}
+                  </td>
+                  <td style={{ padding: '10px 14px', color: '#10b981', fontWeight: 800 }}>{totalKids}</td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Trampoline App ───────────────────────────────────────────────────────
 function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<'home' | 'checkin' | 'history'>('home');
@@ -3642,6 +3910,17 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<'active' | 'all'>('active');
   const [alertShown, setAlertShown] = useState<Set<number>>(new Set());
   const tickRef = useRef(0);
+  const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
+  const [currentTime, setCurrentTime] = useState('');
+
+  useEffect(() => {
+    const updateTime = () => {
+      setCurrentTime(new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     const { data } = await supabase
@@ -3734,102 +4013,145 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Trampoline Park · {new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {overdueSessions.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
-                <Bell size={14} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
-                <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length} overdue</span>
-              </div>
-            )}
-            {urgentSessions.length > 0 && overdueSessions.length === 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
-                <Clock size={14} color="#f59e0b" />
-                <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length} leaving soon</span>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
+              {(['live', 'records'] as const).map(t => (
+                <button key={t} onClick={() => setMainTab(t)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    background: mainTab === t ? '#6366f1' : 'transparent',
+                    color: mainTab === t ? '#fff' : '#6b7280',
+                    transition: 'all 0.15s', whiteSpace: 'nowrap'
+                  }}>
+                  {t === 'live' ? 'Live' : 'Records'}
+                </button>
+              ))}
+            </div>
+            {/* Alert badges (only show on live tab) */}
+            {mainTab === 'live' && (
+              <>
+                {overdueSessions.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20 }}>
+                    <Bell size={14} color="#ef4444" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
+                    <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>{overdueSessions.length} overdue</span>
+                  </div>
+                )}
+                {urgentSessions.length > 0 && overdueSessions.length === 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
+                    <Clock size={14} color="#f59e0b" />
+                    <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>{urgentSessions.length} leaving soon</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px 100px' }}>
-
-        {/* Stats row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
-          {[
-            { label: 'Groups jumping', value: String(active.length), color: '#00C853' },
-            { label: 'Kids jumping now', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7B61FF' },
-            { label: 'Kids today', value: String(todayKids), color: '#f59e0b' },
-          ].map(c => (
-            <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
-              <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
-              <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Alert banners */}
-        {overdueSessions.map(s => (
-          <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
-            <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>Group of {s.kid_count} is overdue!</p>
-              <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
-            </div>
-          </div>
-        ))}
-
-        {urgentSessions.map(s => (
-          <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>Group of {s.kid_count} leaving soon</p>
-              <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
-            </div>
-          </div>
-        ))}
-
-        {/* Tab filter */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          {(['active', 'all'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
-              {t === 'active' ? `Active (${active.length})` : 'All Today'}
-            </button>
-          ))}
-        </div>
-
-        {/* Sessions list */}
-        {loading ? (
-          <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
-        ) : displayed.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
-            <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
-            <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
-              {tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
-            </p>
-            <p style={{ fontSize: 14 }}>Tap the button below to check in a child</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {displayed.map(s => (
-              <SessionCard key={s.id} session={s} onExit={handleExit} onRefresh={fetchSessions} />
+      {mainTab === 'records' ? (
+        <TrampolineRecords allSessions={sessions} />
+      ) : (
+        <>
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10, marginTop: 10 }}>
+            {[
+              { label: 'Groups Jumping', value: String(active.length), color: '#00C853' },
+              { label: 'Jumping now', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7B61FF' },
+              { label: 'Clients today', value: String(todayKids), color: '#f59e0b' },
+            ].map(c => (
+              <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+                <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
+                <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
+              </div>
             ))}
           </div>
-        )}
-      </div>
+
+          {/* Alert banners (already shown in header, but keep for emphasis) */}
+          {overdueSessions.map(s => (
+            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}>
+              <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>Group of {s.kid_count} is overdue!</p>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
+              </div>
+            </div>
+          ))}
+
+          {urgentSessions.map(s => (
+            <div key={s.id} style={{ marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>Group of {s.kid_count} leaving soon</p>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* Tab filter (Active/All Today) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginLeft: 10, marginRight: 10 }}>
+            {/* Tabs on the left */}
+            <div style={{ display: 'flex', gap: 12 }}>
+              {(['active', 'all'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+                  {t === 'active' ? `Active (${active.length})` : 'All Today'}
+                </button>
+              ))}
+            </div>
+
+            {/* Live clock on the right */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#1c1f29', padding: '6px 14px', borderRadius: 20,
+              border: '1px solid rgba(36, 179, 45)',
+            }}>
+              <Clock size={18} color="#24B32D" />
+              <span style={{
+                fontSize: 16, fontWeight: 700, color: '#24B32D',
+                fontFamily: 'monospace', letterSpacing: '1px',
+              }}>
+                {currentTime}
+              </span>
+            </div>
+          </div>
+
+          {/* Sessions list */}
+          {loading ? (
+            <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
+          ) : displayed.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
+              <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
+              <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+                {tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
+              </p>
+              <p style={{ fontSize: 14 }}>Tap the button below to check in a child</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {displayed.map(s => (
+                <SessionCard key={s.id} session={s} onExit={handleExit} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Big check-in button — fixed at bottom */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
-        <div style={{ maxWidth: 600, margin: '0 auto' }}>
-          <button onClick={() => setView('checkin')}
-            style={{ width: '100%', padding: '18px', background: '#6366f1', border: 'none', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
-          >
-            <UserPlus size={20} /> Check In a Child
-          </button>
+      {mainTab === 'live' && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
+          <div style={{ maxWidth: 600, margin: '0 auto' }}>
+            <button onClick={() => setView('checkin')}
+              style={{ width: '100%', padding: '18px', background: '#6366f1', border: 'none', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
+            >
+              <UserPlus size={20} /> Check In a Child
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
@@ -4053,6 +4375,7 @@ export default function Dashboard() {
         users={arcadeUsers}
         onLogin={handleLogin}
         onFirstSetup={refreshUsers}
+        onBack={() => setAppSection('landing')}
       />
     );
   }
@@ -4076,11 +4399,13 @@ export default function Dashboard() {
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .dark-scrollbar::-webkit-scrollbar {
         tr:hover td { background: rgba(255,255,255,0.02) !important; }
         select option { background: #1c1f29; color: #f0f2f8; }
         @media (max-width: 767px) {
           .mobile-overlay { display: block !important; }
         }
+        
       `}</style>
 
       <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -4146,7 +4471,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>© {new Date().getFullYear()} VR Arcade</span>
               <span style={{ opacity: 0.5 }}>|</span>
-              <span>Built by <span style={{ color: 'var(--accent)', fontWeight: 500 }}>Charles</span></span>
+              <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -4162,7 +4487,7 @@ export default function Dashboard() {
               </a>
               <span style={{ opacity: 0.4 }}>|</span>
 
-              <span >📞 +254 769 640 918</span>
+              <span > +254 769 640 918</span>
             </div>
           </footer>
         </div>

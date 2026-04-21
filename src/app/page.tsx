@@ -3408,6 +3408,167 @@ function AddTimeModal({ session, onClose, onSaved }: {
   );
 }
 
+// ─── Time Edit Modal (supervisor/owner PIN‑gated) ────────────────────────────
+function TimeEditModal({
+  checkInTime,
+  exitTime,
+  hours,
+  bonusMins,
+  fineTune,
+  onSave,
+  onClose,
+}: {
+  checkInTime: Date;
+  exitTime: Date;
+  hours: number;
+  bonusMins: number;
+  fineTune: number;
+  onSave: (newCheckIn: Date, newExit: Date, newHours: number, newBonus: number, newFine: number) => void;
+  onClose: () => void;
+}) {
+  const [localCheckIn, setLocalCheckIn] = useState(checkInTime);
+  const [localExit, setLocalExit] = useState(exitTime);
+  const [localHours, setLocalHours] = useState(hours);
+  const [localBonus, setLocalBonus] = useState(bonusMins);
+  const [localFine, setLocalFine] = useState(fineTune);
+  const [autoMode, setAutoMode] = useState<'duration' | 'exit'>('duration');
+
+  // Derived exit preview
+  const derivedExit = new Date(localCheckIn.getTime() + (localHours * 60 + localBonus + localFine) * 60000);
+  const isBackDated = localCheckIn.getTime() < (Date.now() - 60000);
+  const exitIsOverdue = derivedExit.getTime() < Date.now();
+  const minsUntilExit = Math.round((derivedExit.getTime() - Date.now()) / 60000);
+
+  // When duration changes in 'duration' mode, update exit
+  useEffect(() => {
+    if (autoMode === 'duration') {
+      const totalMins = localHours * 60 + localBonus + localFine;
+      const newExit = new Date(localCheckIn.getTime() + totalMins * 60000);
+      setLocalExit(newExit);
+    }
+  }, [localHours, localBonus, localFine, localCheckIn, autoMode]);
+
+  const handleExitChange = (newExit: Date) => {
+    setLocalExit(newExit);
+    if (autoMode === 'exit') {
+      const diffMins = Math.round((newExit.getTime() - localCheckIn.getTime()) / 60000);
+      const hrs = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      setLocalHours(Math.max(1, hrs));
+      let remaining = mins;
+      if (remaining >= 40) { setLocalBonus(40); remaining -= 40; }
+      else if (remaining >= 30) { setLocalBonus(30); remaining -= 30; }
+      else if (remaining >= 20) { setLocalBonus(20); remaining -= 20; }
+      else if (remaining >= 10) { setLocalBonus(10); remaining -= 10; }
+      else { setLocalBonus(0); }
+      setLocalFine(remaining);
+    }
+  };
+
+  const handleSave = () => {
+    onSave(localCheckIn, localExit, localHours, localBonus, localFine);
+    onClose();
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 480, width: '100%', padding: '24px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: '#e1e1ed', marginBottom: 6 }}>Edit Session Times</h2>
+        <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>Set the actual check‑in time and duration for a client who arrived before check‑in.</p>
+
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, background: '#0c0e16', borderRadius: 12, padding: 4 }}>
+          <button
+            onClick={() => setAutoMode('duration')}
+            style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: autoMode === 'duration' ? '#6366f1' : 'transparent', color: autoMode === 'duration' ? '#fff' : '#6b7280' }}
+          >Set Duration → Exit</button>
+          <button
+            onClick={() => setAutoMode('exit')}
+            style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: autoMode === 'exit' ? '#6366f1' : 'transparent', color: autoMode === 'exit' ? '#fff' : '#6b7280' }}
+          >Set Exit → Duration</button>
+        </div>
+
+        {/* Check‑in time */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Check‑in Time</label>
+          <input
+            type="datetime-local"
+            value={format(localCheckIn, "yyyy-MM-dd'T'HH:mm")}
+            onChange={(e) => { const d = new Date(e.target.value); if (!isNaN(d.getTime())) setLocalCheckIn(d); }}
+            style={{ width: '100%', background: '#0c0e16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px', color: '#e1e1ed', fontSize: 14, boxSizing: 'border-box' }}
+          />
+          {isBackDated && (
+            <p style={{ fontSize: 11, color: '#f59e0b', marginTop: 5 }}>
+              ⚠️ Back‑dated: client arrived {Math.round((Date.now() - localCheckIn.getTime()) / 60000)}m ago
+            </p>
+          )}
+        </div>
+
+        {/* Duration controls */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 12, color: '#6b7280', marginBottom: 10 }}>Duration</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: '#c9c4d8' }}>Hours</span>
+              <Stepper value={localHours} onDec={() => setLocalHours(v => Math.max(1, v - 1))} onInc={() => setLocalHours(v => Math.min(12, v + 1))} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 13, color: '#c9c4d8' }}>Bonus</span>
+              <div style={{ display: 'flex', gap: 5 }}>
+                {[0, 10, 20, 30, 40].map(m => (
+                  <button key={m} onClick={() => setLocalBonus(m)} style={{ padding: '6px 10px', borderRadius: 8, background: localBonus === m ? '#6366f1' : '#282a32', color: localBonus === m ? '#fff' : '#c9c4d8', border: 'none', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>{m === 0 ? 'None' : `+${m}m`}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: '#c9c4d8' }}>Fine‑tune</span>
+              <Stepper value={localFine} min={-10} max={10} onDec={() => setLocalFine(v => Math.max(-10, v - 1))} onInc={() => setLocalFine(v => Math.min(10, v + 1))} />
+            </div>
+          </div>
+        </div>
+
+        {/* Exit time */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+            Exit Time {autoMode === 'duration' ? '(auto‑calculated)' : '(editable)'}
+          </label>
+          <input
+            type="datetime-local"
+            value={format(localExit, "yyyy-MM-dd'T'HH:mm")}
+            onChange={(e) => { const d = new Date(e.target.value); if (!isNaN(d.getTime())) handleExitChange(d); }}
+            disabled={autoMode === 'duration'}
+            style={{ width: '100%', background: '#0c0e16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px', color: '#e1e1ed', fontSize: 14, opacity: autoMode === 'duration' ? 0.6 : 1, boxSizing: 'border-box' }}
+          />
+        </div>
+
+        {/* Live preview */}
+        <div style={{ borderRadius: 14, padding: '12px 16px', marginBottom: 20, background: exitIsOverdue ? 'rgba(239,68,68,0.1)' : isBackDated ? 'rgba(245,158,11,0.1)' : 'rgba(99,102,241,0.1)', border: `1px solid ${exitIsOverdue ? 'rgba(239,68,68,0.3)' : isBackDated ? 'rgba(245,158,11,0.3)' : 'rgba(99,102,241,0.25)'}` }}>
+          <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Session Preview</p>
+          <p style={{ fontSize: 14, color: '#e1e1ed', margin: 0, fontWeight: 600 }}>
+            {format(localCheckIn, 'HH:mm')} → {format(localExit, 'HH:mm')}
+            {' '}
+            <span style={{ fontWeight: 400, color: '#6b7280' }}>
+              ({localHours}h{localBonus > 0 ? ` +${localBonus}m` : ''}{localFine !== 0 ? ` ${localFine > 0 ? '+' : ''}${localFine}m` : ''})
+            </span>
+          </p>
+          {exitIsOverdue ? (
+            <p style={{ fontSize: 12, color: '#ef4444', margin: '4px 0 0', fontWeight: 700 }}>⚠️ Exit time already passed — session card will show Overdue immediately</p>
+          ) : isBackDated ? (
+            <p style={{ fontSize: 12, color: '#f59e0b', margin: '4px 0 0' }}>⏳ {minsUntilExit}m remaining on session timer from now</p>
+          ) : (
+            <p style={{ fontSize: 12, color: '#34d399', margin: '4px 0 0' }}>✓ Timer will count down normally</p>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#282a32', color: '#c9c4d8', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+          <button onClick={handleSave} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Apply Times</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Check-in form (Two-screen: Standard + Group Package, with full duration controls) ───
 function CheckInForm({ onDone, onCancel, activeSessions }: {
   onDone: () => void; onCancel: () => void; activeSessions: JumperSession[];
@@ -3426,6 +3587,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
   // ── Special Categories (Standard mode only) ────────────────────────────
   const [showSpecial, setShowSpecial] = useState(false);
   const [specialCategory, setSpecialCategory] = useState<string | null>(null);
+
+  // ── Custom check‑in time (PIN‑gated) ──
+  const [checkInTime, setCheckInTime] = useState<Date>(new Date());
+  const [showPinModalForTime, setShowPinModalForTime] = useState(false);
 
   // ── Per‑kid descriptions (Standard mode only) ──────────────────────────
   const [kidDescs, setKidDescs] = useState<KidDesc[]>([
@@ -3491,13 +3656,19 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
   const effectiveHours = customHourMode ? (parseFloat(customHourInput) || 0) : hours;
   const totalMins = (checkInMode === 'standard' && specialCategory) ? 0 : (effectiveHours * 60 + bonusMins + fineTune);
-  const exitTime = (checkInMode === 'standard' && specialCategory) ? endOfDay() : new Date(Date.now() + totalMins * 60000);
+  const exitTime = (checkInMode === 'standard' && specialCategory) ? endOfDay() : new Date(checkInTime.getTime() + totalMins * 60000);
   const exitLabel = exitTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
   const selectedCat = (checkInMode === 'standard' && specialCategory)
     ? SPECIAL_CATEGORIES.find(c => c.id === specialCategory)
     : null;
-
+  // Time edit modal
+  const [showTimeEditModal, setShowTimeEditModal] = useState(false);
+  const [tempCheckInTime, setTempCheckInTime] = useState<Date>(checkInTime);
+  const [tempExitTime, setTempExitTime] = useState<Date>(exitTime);
+  const [tempHours, setTempHours] = useState(hours);
+  const [tempBonusMins, setTempBonusMins] = useState(bonusMins);
+  const [tempFineTune, setTempFineTune] = useState(fineTune);
   // ── Handlers ────────────────────────────────────────────────────────────
   const handleKidCountChange = (newCount: number) => {
     setKidCount(newCount);
@@ -3515,13 +3686,19 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
     setKidDescs(prev => prev.map((d, i) => i === index ? desc : d));
   };
 
+  useEffect(() => {
+    // Reset time edit state when mode changes
+    setShowPinModalForTime(false);
+    setShowTimeEditModal(false);
+  }, [checkInMode]);
+
   const handleSubmit = async () => {
     if (checkInMode === 'package' && selectedPackage === 'other' && !customPackageName.trim()) {
       setError('Please enter a package name.'); return;
     }
     setSaving(true); setError('');
 
-    const checkInTime = new Date().toISOString();
+    const checkInTimeISO = checkInTime.toISOString();
     const first = kidDescs[0] ?? { tops: [], bottoms: [], colors: [] };
 
     let packageType: string | null = null;
@@ -3547,7 +3724,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
     const payload: any = {
       kid_count: kidCount,
-      check_in_time: checkInTime,
+      check_in_time: checkInTimeISO,
       duration_hours: (checkInMode === 'standard' && specialCategory) ? 0 : effectiveHours,
       bonus_minutes: (checkInMode === 'standard' && specialCategory) ? 0 : (bonusMins + fineTune),
       exit_time: exitTime.toISOString(),
@@ -3599,6 +3776,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
         padding: '14px 20px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          {/* Left side: back button + title */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
               <ChevronLeft size={22} />
@@ -3608,6 +3786,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
             </div>
           </div>
+
+          {/* Exit time chip only */}
           <div style={{
             background: selectedCat ? selectedCat.bg : '#1d1f28',
             border: `1px solid ${selectedCat ? selectedCat.border : 'transparent'}`,
@@ -3617,10 +3797,11 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
               {selectedCat ? selectedCat.label : 'Expected Exit'}
             </p>
             <p style={{ fontSize: 18, fontWeight: 800, color: selectedCat ? selectedCat.color : '#00C853', margin: 0 }}>
-              {selectedCat ? '⬤ All Day' : exitLabel}
+              {selectedCat ? '⬤ All Day' : format(exitTime, 'HH:mm')}
             </p>
           </div>
         </div>
+
 
         {/* Mode switcher tabs */}
         <div style={{ display: 'flex', background: '#0c0e16', borderRadius: 14, padding: 4, gap: 4 }}>
@@ -3647,7 +3828,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
       <div style={{ padding: '20px 16px 130px', maxWidth: 480, margin: '0 auto' }}>
 
-     
+
 
         {/* ── SECTION 1: COUNT (both modes) ── */}
         <p style={secLabel}>
@@ -3803,6 +3984,30 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
               <>
                 <p style={{ ...secLabel, marginTop: 8 }}>Duration</p>
                 <div style={card}>
+
+                  {/* ── Session Times (PIN‑gated via modal) ── */}
+                  <div style={{ marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>⏱️ Edit Session Times</p>
+                        <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
+                          Check‑in: {format(checkInTime, 'HH:mm')} · Exit: {format(exitTime, 'HH:mm')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowPinModalForTime(true)}
+                        style={{ background: '#282a32', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', color: '#818cf8', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <Edit size={14} /> Edit Times
+                      </button>
+                    </div>
+                    {checkInTime.getTime() < (new Date().getTime() - 60000) && (
+                      <p style={{ fontSize: 10, color: '#f59e0b', marginTop: 6 }}>
+                        ⚠️ Back‑dated · check‑in {Math.round((Date.now() - checkInTime.getTime()) / 60000)}m ago
+                      </p>
+                    )}
+                  </div>
+
                   {/* Standard hours row + custom hours toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
                     <div>
@@ -4118,9 +4323,12 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </div>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Check‑in</p>
-            <p style={{ fontSize: 22, fontWeight: 700, color: '#e1e1ed', margin: 0 }}>
-              {new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            <p style={{ fontSize: 22, fontWeight: 700, color: checkInTime.getTime() < (Date.now() - 60000) ? '#f59e0b' : '#e1e1ed', margin: 0 }}>
+              {checkInTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}
             </p>
+            {checkInTime.getTime() < (Date.now() - 60000) && (
+              <p style={{ fontSize: 10, color: '#f59e0b', margin: '2px 0 0' }}>back‑dated</p>
+            )}
           </div>
         </div>
 
@@ -4131,6 +4339,48 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </div>
         )}
       </div>
+
+      {/* PIN modal for editing check‑in / exit times */}
+      {showPinModalForTime && (
+        <PinAuthModal
+          title="Authorise Time Edit"
+          subtitle="Supervisors and owners can change check‑in and exit times."
+          actionLabel="Verify"
+          onSuccess={(userName, role) => {
+            if (role === 'supervisor' || role === 'owner') {
+              setTempCheckInTime(checkInTime);
+              setTempExitTime(exitTime);
+              setTempHours(hours);
+              setTempBonusMins(bonusMins);
+              setTempFineTune(fineTune);
+              setShowTimeEditModal(true);
+              setShowPinModalForTime(false);
+            } else {
+              alert('Only supervisors or owners can edit times.');
+              setShowPinModalForTime(false);
+            }
+          }}
+          onCancel={() => setShowPinModalForTime(false)}
+        />
+      )}
+
+      {showTimeEditModal && (
+        <TimeEditModal
+          checkInTime={checkInTime}
+          exitTime={exitTime}
+          hours={hours}
+          bonusMins={bonusMins}
+          fineTune={fineTune}
+          onSave={(newCheckIn, newExit, newHours, newBonus, newFine) => {
+            setCheckInTime(newCheckIn);
+            setHours(newHours);
+            setBonusMins(newBonus);
+            setFineTune(newFine);
+            setShowTimeEditModal(false);
+          }}
+          onClose={() => setShowTimeEditModal(false)}
+        />
+      )}
 
       {/* Fixed CTA */}
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #0c0e16 60%, transparent)', zIndex: 50 }}>

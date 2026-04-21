@@ -19,6 +19,7 @@ import {
   ChevronDown, ChevronUp, Calendar, Filter,
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
   PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell, Edit,
+  Package, TimerReset, Cake, GraduationCap, Handshake, PlusCircle,
 } from 'lucide-react';
 
 
@@ -2905,7 +2906,7 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         </div>
 
         <p style={{ marginTop: 40, fontSize: 12, color: '#374151', position: 'relative', zIndex: 1 }}>
-          Xtreme Zone · Staff Portal
+          Jump Xtreme· Portal
         </p>
       </div>
     </>
@@ -2934,9 +2935,8 @@ interface JumperSession {
   exit_time: string;            // scheduled = check_in + duration_hours*60 + bonus_minutes
   actual_exit_time: string | null; // set when worker presses Exit
   status: 'active' | 'exited';
-  // kid_descs stores JSON array of KidDesc, one per kid
-  // For 1 kid: top_wear/bottom_wear/colors kept for backwards compat
-  // For 2+ kids: kid_descs is the source of truth
+  package_type: string | null;  // null = standard; 'birthday'|'school'|'team_building'|custom string
+  group_note: string | null;    // optional group-level note (used for group packages)
   top_wear: string;
   bottom_wear: string;
   colors: string;
@@ -3190,34 +3190,244 @@ function KidDescPanel({ kidIndex, kidCount, desc, onChange }: {
   );
 }
 
+// ─── PIN Authentication Modal ─────────────────────────────────────────────────
+// Reusable PIN gate — fetches all arcade_users and verifies against any of them.
+// onSuccess receives the verified user's name + role.
+function PinAuthModal({ title, subtitle, onSuccess, onCancel, actionLabel = 'Confirm' }: {
+  title: string;
+  subtitle?: string;
+  onSuccess: (userName: string, role: string) => void;
+  onCancel: () => void;
+  actionLabel?: string;
+}) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  const handleDigit = (d: string) => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError('');
+    if (next.length === 4) verify(next);
+  };
+  const handleBack = () => setPin(p => p.slice(0, -1));
+
+  const verify = async (code: string) => {
+    setChecking(true);
+    const { data: users } = await supabase.from('arcade_users').select('*');
+    if (!users || users.length === 0) { setError('No users found.'); setPin(''); setChecking(false); return; }
+    for (const u of users as ArcadeUser[]) {
+      const ok = await verifyPin(code, u.pin_hash);
+      if (ok) { setChecking(false); onSuccess(u.name, u.role); return; }
+    }
+    setChecking(false);
+    setError('Wrong PIN. Try again.');
+    setPin('');
+  };
+
+  const dots = Array.from({ length: 4 }, (_, i) => i < pin.length);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#1d1f28', borderRadius: 24, width: '100%', maxWidth: 340, padding: '28px 24px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+        {/* Icon */}
+        <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(123,97,255,0.15)', border: '1px solid rgba(123,97,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <LockKeyhole size={24} color="#917eff" />
+        </div>
+        <p style={{ fontSize: 17, fontWeight: 800, color: '#e1e1ed', margin: '0 0 4px', textAlign: 'center' }}>{title}</p>
+        {subtitle && <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 24px', textAlign: 'center', lineHeight: 1.5 }}>{subtitle}</p>}
+        {!subtitle && <div style={{ marginBottom: 24 }} />}
+
+        {/* PIN dots */}
+        <div style={{ display: 'flex', gap: 14, marginBottom: 8 }}>
+          {dots.map((filled, i) => (
+            <div key={i} style={{ width: 18, height: 18, borderRadius: '50%', background: filled ? '#7B61FF' : '#282a32', border: `2px solid ${filled ? '#917eff' : 'rgba(255,255,255,0.1)'}`, transition: 'all 0.12s' }} />
+          ))}
+        </div>
+        {error && <p style={{ fontSize: 12, color: '#ef4444', margin: '4px 0 12px', textAlign: 'center' }}>{error}</p>}
+        {!error && <div style={{ marginBottom: 20 }} />}
+
+        {/* Numpad */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, width: '100%', marginBottom: 14 }}>
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((d, i) => (
+            d === '' ? <div key={i} /> :
+              <button key={i}
+                onClick={() => d === '⌫' ? handleBack() : handleDigit(d)}
+                disabled={checking}
+                style={{
+                  padding: '18px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                  background: d === '⌫' ? '#282a32' : 'rgba(255,255,255,0.05)',
+                  color: d === '⌫' ? '#9ca3af' : '#e1e1ed',
+                  fontSize: d === '⌫' ? 20 : 22, fontWeight: 700,
+                  transition: 'all 0.1s', opacity: checking ? 0.5 : 1,
+                }}
+                onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.93)'; }}
+                onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+              >{checking && d !== '⌫' ? '' : d}</button>
+          ))}
+        </div>
+        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', padding: '6px 16px', borderRadius: 8 }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Add Time Modal (PIN-gated) ───────────────────────────────────────────────
+function AddTimeModal({ session, onClose, onSaved }: {
+  session: JumperSession;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [pinVerified, setPinVerified] = useState(false);
+  const [addMins, setAddMins] = useState(10);
+  const [customMins, setCustomMins] = useState('');
+  const [useCustom, setUseCustom] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const presets = [10, 15, 20, 30, 45, 60];
+  const finalMins = useCustom ? parseInt(customMins || '0', 10) : addMins;
+
+  const currentExit = new Date(session.exit_time);
+  const newExit = new Date(currentExit.getTime() + finalMins * 60000);
+  const newExitLabel = newExit.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+  const handleSave = async () => {
+    if (!finalMins || finalMins <= 0) { setError('Please select or enter a valid time.'); return; }
+    setSaving(true);
+    const { error: err } = await supabase.from('jumper_sessions').update({
+      exit_time: newExit.toISOString(),
+      bonus_minutes: session.bonus_minutes + finalMins,
+    }).eq('id', session.id);
+    setSaving(false);
+    if (err) { setError('Failed to update time. Try again.'); return; }
+    onSaved();
+    onClose();
+  };
+
+  if (!pinVerified) {
+    return (
+      <PinAuthModal
+        title="Authorise Time Extension"
+        subtitle="Only authorised staff can extend session time."
+        actionLabel="Extend Time"
+        onSuccess={() => setPinVerified(true)}
+        onCancel={onClose}
+      />
+    );
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 400, width: '100%', padding: '24px 20px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <TimerReset size={18} color="#818cf8" />
+          </div>
+          <div>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Extend Session</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Group of {session.kid_count} · current exit {new Date(session.exit_time).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+          </div>
+        </div>
+
+        {/* New exit preview */}
+        {finalMins > 0 && (
+          <div style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '10px 14px', margin: '14px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#818cf8' }}>New exit time</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: '#a5b4fc' }}>{newExitLabel}</span>
+          </div>
+        )}
+
+        {/* Presets */}
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '14px 0 10px' }}>Add time</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {presets.map(m => (
+            <button key={m}
+              onClick={() => { setUseCustom(false); setAddMins(m); }}
+              style={{
+                padding: '10px 16px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                fontSize: 14, fontWeight: 700,
+                background: !useCustom && addMins === m ? '#6366f1' : '#282a32',
+                color: !useCustom && addMins === m ? '#fff' : '#c9c4d8',
+                transition: 'all 0.12s',
+              }}>
+              +{m}m
+            </button>
+          ))}
+          <button
+            onClick={() => setUseCustom(true)}
+            style={{
+              padding: '10px 16px', borderRadius: 12, border: 'none', cursor: 'pointer',
+              fontSize: 14, fontWeight: 700,
+              background: useCustom ? '#6366f1' : '#282a32',
+              color: useCustom ? '#fff' : '#c9c4d8',
+              transition: 'all 0.12s',
+            }}>
+            Custom
+          </button>
+        </div>
+
+        {useCustom && (
+          <div style={{ marginBottom: 14 }}>
+            <input
+              type="number" min={1} max={240}
+              value={customMins}
+              onChange={e => setCustomMins(e.target.value)}
+              placeholder="Enter minutes (e.g. 25)"
+              style={{ background: '#0c0e16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '12px 14px', color: '#e1e1ed', fontSize: 16, width: '100%', outline: 'none' }}
+              autoFocus
+            />
+          </div>
+        )}
+
+        {error && <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 10 }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#282a32', color: '#c9c4d8', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving || finalMins <= 0} style={{ flex: 2, padding: '12px', borderRadius: 12, border: 'none', background: finalMins > 0 ? '#6366f1' : '#282a32', color: finalMins > 0 ? '#fff' : '#4b5563', fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.12s' }}>
+            {saving ? 'Saving…' : `Add +${finalMins}m`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Check-in form (Fast, zero keyboard) ─────────────────────────────────────
 function CheckInForm({ onDone, onCancel, activeSessions }: {
   onDone: () => void; onCancel: () => void; activeSessions: JumperSession[];
 }) {
+  // ── Top-level mode: standard individual check-in vs group package ──
+  const [checkInMode, setCheckInMode] = useState<'standard' | 'package'>('standard');
+
+  // ── Standard fields ──
   const [kidCount, setKidCount] = useState(1);
   const [hours, setHours] = useState(1);
   const [bonusMins, setBonusMins] = useState(0);
-  // Per-kid descriptions — grows/shrinks as kidCount changes
   const [kidDescs, setKidDescs] = useState<KidDesc[]>([{ tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false }]);
-  // Which kid slot is being described (tab index)
   const [activeKid, setActiveKid] = useState(0);
+
+  // ── Package fields ──
+  const PACKAGE_OPTIONS = [
+    { id: 'birthday', label: 'Birthday Package', icon: '🎂', color: '#f472b6', desc: 'Party & play for birthday celebrations' },
+    { id: 'school', label: 'School Group', icon: '🎓', color: '#60a5fa', desc: 'Educational group & school trips' },
+    { id: 'team_building', label: 'Team Building', icon: '🤝', color: '#34d399', desc: 'Corporate & team activities' },
+    { id: 'other', label: 'Other / Custom', icon: '📦', color: '#a78bfa', desc: 'Custom group package' },
+  ];
+  const [selectedPackage, setSelectedPackage] = useState<string>('birthday');
+  const [customPackageName, setCustomPackageName] = useState('');
+  const [groupNote, setGroupNote] = useState('');
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Keep kidDescs array in sync with kidCount
   const handleKidCountChange = (newCount: number) => {
     setKidCount(newCount);
     setKidDescs(prev => {
       if (newCount > prev.length) {
-        const emptyDesc: KidDesc = {
-          tops: [],
-          bottoms: [],
-          colors: [],
-          gender: 'other',
-          isAdult: false,
-        };
-        const additions = Array(newCount - prev.length).fill(emptyDesc);
-        return [...prev, ...additions];
+        const emptyDesc: KidDesc = { tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false };
+        return [...prev, ...Array(newCount - prev.length).fill(emptyDesc)];
       }
       return prev.slice(0, newCount);
     });
@@ -3233,12 +3443,16 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
   const exitLabel = exitTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
   const handleSubmit = async () => {
+    if (checkInMode === 'package' && selectedPackage === 'other' && !customPackageName.trim()) {
+      setError('Please enter a package name.'); return;
+    }
     setSaving(true);
     setError('');
     const checkInTime = new Date().toISOString();
-    // For single kid: use flat fields for backwards compat
-    // For multiple: store as JSON in kid_descs, and use first kid for flat fields
     const first = kidDescs[0] ?? { tops: [], bottoms: [], colors: [] };
+    const pkgType = checkInMode === 'package'
+      ? (selectedPackage === 'other' ? customPackageName.trim() : selectedPackage)
+      : null;
     const { error: err } = await supabase.from('jumper_sessions').insert({
       kid_count: kidCount,
       check_in_time: checkInTime,
@@ -3247,10 +3461,12 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       exit_time: exitTime.toISOString(),
       actual_exit_time: null,
       status: 'active',
-      top_wear: first.tops.join(','),
-      bottom_wear: first.bottoms.join(','),
-      colors: first.colors.join(','),
-      kid_descs: kidCount > 1 ? JSON.stringify(kidDescs) : null,
+      package_type: pkgType,
+      group_note: checkInMode === 'package' ? (groupNote.trim() || null) : null,
+      top_wear: checkInMode === 'standard' ? first.tops.join(',') : '',
+      bottom_wear: checkInMode === 'standard' ? first.bottoms.join(',') : '',
+      colors: checkInMode === 'standard' ? first.colors.join(',') : '',
+      kid_descs: checkInMode === 'standard' && kidCount > 1 ? JSON.stringify(kidDescs) : null,
     });
     setSaving(false);
     if (err) { setError('Could not save. Try again.'); return; }
@@ -3264,8 +3480,6 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
   const card: React.CSSProperties = {
     background: '#1d1f28', borderRadius: 24, padding: '22px 20px', marginBottom: 16,
   };
-
-  // Dot indicator: shows which kids have at least one color picked
   const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
     '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
 
@@ -3281,42 +3495,73 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       {/* Sticky header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(29,31,40,0.9)', backdropFilter: 'blur(20px)',
+        background: 'rgba(13,15,20,0.95)', backdropFilter: 'blur(20px)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
         padding: '14px 20px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
-            <ChevronLeft size={22} />
-          </button>
-          <div>
-            <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Fast Check-in</p>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
+              <ChevronLeft size={22} />
+            </button>
+            <div>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Check-in</p>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
+            </div>
+          </div>
+          <div style={{ background: '#1d1f28', borderRadius: 12, padding: '8px 14px', textAlign: 'right' }}>
+            <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Expected Exit</p>
+            <p style={{ fontSize: 18, fontWeight: 800, color: '#00C853', margin: 0 }}>{exitLabel}</p>
           </div>
         </div>
-        <div style={{ background: '#1d1f28', borderRadius: 12, padding: '8px 14px', textAlign: 'right' }}>
-          <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>Expected. Exit Time</p>
-          <p style={{ fontSize: 18, fontWeight: 800, color: '#00C853', margin: 0 }}>{exitLabel}</p>
+
+        {/* Mode switcher tabs */}
+        <div style={{ display: 'flex', background: '#0c0e16', borderRadius: 14, padding: 4, gap: 4 }}>
+          {([
+            { id: 'standard', label: 'Standard Check-in', icon: '👤' },
+            { id: 'package', label: 'Group Package', icon: '📦' },
+          ] as const).map(m => (
+            <button key={m.id} onClick={() => { setCheckInMode(m.id); setError(''); }}
+              style={{
+                flex: 1, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                fontSize: 13, fontWeight: 700,
+                background: checkInMode === m.id
+                  ? (m.id === 'package' ? 'linear-gradient(135deg, #7c3aed, #6366f1)' : 'linear-gradient(135deg, #059669, #00C853)')
+                  : 'transparent',
+                color: checkInMode === m.id ? '#fff' : '#6b7280',
+                transition: 'all 0.18s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <span>{m.icon}</span> {m.label}
+            </button>
+          ))}
         </div>
       </div>
 
       <div style={{ padding: '20px 16px 130px', maxWidth: 480, margin: '0 auto' }}>
 
-        {/* ── SECTION 1: QUANTITY ─────────────────────────────────────── */}
-        <p style={secLabel}>Quantity · <span style={{ color: '#c9c4d8' }}>Clients in Group</span></p>
+        {/* ── SECTION 1: COUNT (both modes) ───────────────────────────── */}
+        <p style={secLabel}>
+          {checkInMode === 'package' ? 'Group Size' : 'Quantity'} ·{' '}
+          <span style={{ color: '#c9c4d8' }}>
+            {checkInMode === 'package' ? 'Total clients in package' : 'Clients in Group'}
+          </span>
+        </p>
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Number of Client</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>
+                {checkInMode === 'package' ? 'Group Size' : 'Number of Clients'}
+              </p>
               <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Select total count</p>
             </div>
             <Stepper large value={kidCount}
               onDec={() => handleKidCountChange(Math.max(1, kidCount - 1))}
-              onInc={() => handleKidCountChange(Math.min(20, kidCount + 1))} />
+              onInc={() => handleKidCountChange(Math.min(100, kidCount + 1))} />
           </div>
         </div>
 
-        {/* ── SECTION 2: DURATION ─────────────────────────────────────── */}
+        {/* ── SECTION 2: DURATION (both modes) ────────────────────────── */}
         <p style={{ ...secLabel, marginTop: 8 }}>Duration</p>
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
@@ -3344,106 +3589,144 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </div>
         </div>
 
-        {/* ── SECTION 3: IDENTIFICATION ───────────────────────────────── */}
-        <p style={{ ...secLabel, marginTop: 8 }}>
-          Identification ·{' '}
-          <span style={{ color: '#c9c4d8' }}>
-            {kidCount === 1 ? 'Quick Description' : `Describe Each Kid (${kidCount} total)`}
-          </span>
-        </p>
-
-        {/* Kid tab switcher — only shown when 2+ kids */}
-        {kidCount > 1 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
-            {kidDescs.map((desc, i) => {
-              const isActive = i === activeKid;
-              const accent = kidColors[i % kidColors.length];
-              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
-              return (
-                <button key={i} className="kid-tab" onClick={() => setActiveKid(i)}
+        {/* ── PACKAGE MODE: Package type selector + note ──────────────── */}
+        {checkInMode === 'package' && (
+          <>
+            <p style={{ ...secLabel, marginTop: 8 }}>Package Type</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {PACKAGE_OPTIONS.map(pkg => (
+                <button key={pkg.id} onClick={() => setSelectedPackage(pkg.id)}
                   style={{
-                    flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                    background: isActive ? '#1d1f28' : '#0c0e16',
-                    outline: isActive ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
-                    outlineOffset: 0,
-                    transition: 'all 0.15s',
+                    display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+                    borderRadius: 16, border: 'none', cursor: 'pointer', textAlign: 'left',
+                    background: selectedPackage === pkg.id ? `rgba(${pkg.color === '#f472b6' ? '244,114,182' : pkg.color === '#60a5fa' ? '96,165,250' : pkg.color === '#34d399' ? '52,211,153' : '167,139,250'},0.12)` : '#1d1f28',
+                    outline: selectedPackage === pkg.id ? `2px solid ${pkg.color}` : '2px solid transparent',
+                    outlineOffset: 0, transition: 'all 0.15s',
                   }}>
-                  {/* Kid number circle */}
-                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+                  <span style={{ fontSize: 28, flexShrink: 0 }}>{pkg.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: selectedPackage === pkg.id ? pkg.color : '#e1e1ed', margin: '0 0 2px' }}>{pkg.label}</p>
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{pkg.desc}</p>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>
-                    Kid {i + 1}
-                  </span>
-                  {/* Gender icon on tab */}
-                  {desc.gender && desc.gender !== 'other' && (
-                    <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
-                      {desc.gender === 'male' ? '♂' : '♀'}
-                    </span>
-                  )}
-                  {/* Age icon on tab */}
-                  {desc.isAdult !== undefined && (
-                    <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
-                  )}
-                  {/* Green dot if this kid has at least one description */}
-                  {hasDesc && !isActive && (
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />
-                  )}
-                  {/* Color preview dots on the tab */}
-                  {desc.colors.length > 0 && (
-                    <div style={{ display: 'flex', gap: 3 }}>
-                      {desc.colors.slice(0, 3).map(cid => {
-                        const c = COLOR_OPTIONS.find(x => x.id === cid);
-                        return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
-                      })}
-                    </div>
-                  )}
+                  <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${selectedPackage === pkg.id ? pkg.color : 'rgba(255,255,255,0.15)'}`, background: selectedPackage === pkg.id ? pkg.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {selectedPackage === pkg.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+                  </div>
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+
+            {/* Custom package name input */}
+            {selectedPackage === 'other' && (
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ ...secLabel, marginBottom: 8 }}>Package Name</p>
+                <input
+                  type="text"
+                  value={customPackageName}
+                  onChange={e => setCustomPackageName(e.target.value)}
+                  placeholder="Enter custom package name…"
+                  style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 15, width: '100%', outline: 'none' }}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* Group note */}
+            <p style={{ ...secLabel, marginTop: 8 }}>Group Note <span style={{ textTransform: 'none', fontSize: 10, color: '#4b5563', fontWeight: 400 }}>(optional)</span></p>
+            <div style={{ marginBottom: 16 }}>
+              <textarea
+                value={groupNote}
+                onChange={e => setGroupNote(e.target.value)}
+                placeholder="e.g. Contact: John · 25 pax booked · allergies noted"
+                rows={3}
+                style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 14, width: '100%', outline: 'none', resize: 'none', lineHeight: 1.6 }}
+              />
+            </div>
+          </>
         )}
 
-        {/* Description panel for active kid */}
-        <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16 }}>
-          <KidDescPanel
-            key={activeKid}
-            kidIndex={activeKid}
-            kidCount={kidCount}
-            desc={kidDescs[activeKid] ?? { tops: [], bottoms: [], colors: [] }}
-            onChange={desc => updateKidDesc(activeKid, desc)}
-          />
-        </div>
+        {/* ── STANDARD MODE: Per-client description ───────────────────── */}
+        {checkInMode === 'standard' && (
+          <>
+            <p style={{ ...secLabel, marginTop: 8 }}>
+              Identification ·{' '}
+              <span style={{ color: '#c9c4d8' }}>
+                {kidCount === 1 ? 'Quick Description' : `Describe Each Client (${kidCount} total)`}
+              </span>
+            </p>
 
-        {/* Next kid shortcut — when 2+ kids and not on last */}
-        {kidCount > 1 && activeKid < kidCount - 1 && (
-          <button onClick={() => setActiveKid(activeKid + 1)}
-            style={{
-              width: '100%', padding: '14px', borderRadius: 14, border: 'none',
-              background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              gap: 8, marginBottom: 16, transition: 'all 0.12s',
-            }}>
-            Next → Kid {activeKid + 2}
-          </button>
-        )}
+            {kidCount > 1 && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
+                {kidDescs.map((desc, i) => {
+                  const isActive = i === activeKid;
+                  const accent = kidColors[i % kidColors.length];
+                  const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+                  return (
+                    <button key={i} className="kid-tab" onClick={() => setActiveKid(i)}
+                      style={{
+                        flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                        background: isActive ? '#1d1f28' : '#0c0e16',
+                        outline: isActive ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
+                        outlineOffset: 0, transition: 'all 0.15s',
+                      }}>
+                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>Kid {i + 1}</span>
+                      {desc.gender && desc.gender !== 'other' && (
+                        <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
+                          {desc.gender === 'male' ? '♂' : '♀'}
+                        </span>
+                      )}
+                      {desc.isAdult !== undefined && (
+                        <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
+                      )}
+                      {hasDesc && !isActive && (
+                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />
+                      )}
+                      {desc.colors.length > 0 && (
+                        <div style={{ display: 'flex', gap: 3 }}>
+                          {desc.colors.slice(0, 3).map(cid => {
+                            const c = COLOR_OPTIONS.find(x => x.id === cid);
+                            return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
+                          })}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-        {/* Progress indicator for groups */}
-        {kidCount > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
-            {kidDescs.map((desc, i) => {
-              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
-              const accent = kidColors[i % kidColors.length];
-              return (
-                <div key={i} style={{
-                  width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4,
-                  background: hasDesc ? accent : i === activeKid ? '#7B61FF' : '#282a32',
-                  transition: 'all 0.2s',
-                }} />
-              );
-            })}
-          </div>
+            <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16 }}>
+              <KidDescPanel
+                key={activeKid}
+                kidIndex={activeKid}
+                kidCount={kidCount}
+                desc={kidDescs[activeKid] ?? { tops: [], bottoms: [], colors: [] }}
+                onChange={desc => updateKidDesc(activeKid, desc)}
+              />
+            </div>
+
+            {kidCount > 1 && activeKid < kidCount - 1 && (
+              <button onClick={() => setActiveKid(activeKid + 1)}
+                style={{ width: '100%', padding: '14px', borderRadius: 14, border: 'none', background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s' }}>
+                Next → Kid {activeKid + 2}
+              </button>
+            )}
+
+            {kidCount > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+                {kidDescs.map((desc, i) => {
+                  const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+                  const accent = kidColors[i % kidColors.length];
+                  return (
+                    <div key={i} style={{ width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4, background: hasDesc ? accent : i === activeKid ? '#7B61FF' : '#282a32', transition: 'all 0.2s' }} />
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
 
         {/* Summary preview */}
@@ -3452,7 +3735,13 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
             <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Estimated End</p>
             <p style={{ fontSize: 28, fontWeight: 800, color: '#00C853', margin: 0, lineHeight: 1 }}>{exitLabel}</p>
             <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
-              {hours}h{bonusMins > 0 ? ` + ${bonusMins}m` : ''} · {kidCount} kid{kidCount !== 1 ? 's' : ''}
+              {hours}h{bonusMins > 0 ? ` + ${bonusMins}m` : ''} · {kidCount} client{kidCount !== 1 ? 's' : ''}
+              {checkInMode === 'package' && selectedPackage && (
+                <span style={{ marginLeft: 6, color: '#a78bfa' }}>
+                  · {PACKAGE_OPTIONS.find(p => p.id === selectedPackage)?.icon}{' '}
+                  {selectedPackage === 'other' ? (customPackageName || 'Custom') : PACKAGE_OPTIONS.find(p => p.id === selectedPackage)?.label}
+                </span>
+              )}
             </p>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -3477,8 +3766,11 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           <button onClick={handleSubmit} disabled={saving}
             style={{
               width: '100%', padding: '20px', border: 'none', borderRadius: 20, cursor: saving ? 'not-allowed' : 'pointer',
-              background: saving ? '#282a32' : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)',
-              color: saving ? '#6b7280' : '#001a0a',
+              background: saving ? '#282a32'
+                : checkInMode === 'package'
+                  ? 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)'
+                  : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)',
+              color: saving ? '#6b7280' : '#fff',
               fontSize: 17, fontWeight: 800, letterSpacing: '0.04em',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               transition: 'all 0.15s',
@@ -3486,11 +3778,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
             onMouseDown={e => { if (!saving) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
             onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
           >
-            {saving ? 'Saving…' : (
-              <>
-                <CheckCircle size={22} />
-                CONFIRM CHECK-IN · {kidCount} Kid{kidCount !== 1 ? 's' : ''}
-              </>
+            {saving ? 'Saving…' : checkInMode === 'package' ? (
+              <><Package size={20} /> CONFIRM PACKAGE · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
+            ) : (
+              <><CheckCircle size={22} /> CONFIRM CHECK-IN · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
             )}
           </button>
         </div>
@@ -3500,10 +3791,12 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 }
 
 // ─── Session card ─────────────────────────────────────────────────────────────
-function SessionCard({ session, onExit, onEdit }: {
+function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   session: JumperSession;
   onExit: (id: number) => void;
-  onEdit?: (id: number) => void;   // ← new
+  onEdit?: (id: number) => void;
+  onAddTime?: (session: JumperSession) => void;
+  onDelete?: (session: JumperSession) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isActive = session.status === 'active';
@@ -3541,9 +3834,32 @@ function SessionCard({ session, onExit, onEdit }: {
       overflow: 'hidden', transition: 'border-color 0.3s',
       fontFamily: 'Inter, sans-serif',
     }}>
+      {/* Package type banner — shown for group package sessions */}
+      {session.package_type && (
+        <div style={{
+          padding: '7px 16px',
+          background: 'linear-gradient(90deg, rgba(124,58,237,0.18) 0%, rgba(99,102,241,0.1) 100%)',
+          borderBottom: '1px solid rgba(124,58,237,0.2)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <Package size={13} color="#a78bfa" />
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            {session.package_type === 'birthday' ? '🎂 Birthday Package'
+              : session.package_type === 'school' ? '🎓 School Group'
+                : session.package_type === 'team_building' ? '🤝 Team Building'
+                  : `📦 ${session.package_type}`}
+          </span>
+          {session.group_note && (
+            <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              · {session.group_note}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Main row — always visible */}
       <div style={{ padding: '14px 16px' }}>
-        {/* Row 1: Kid count badge + times + status */}
+        {/* Row 1: Kid count badge + times + status + actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ background: 'rgba(123,97,255,0.2)', borderRadius: 10, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -3556,7 +3872,7 @@ function SessionCard({ session, onExit, onEdit }: {
               <span style={{ fontSize: 14, fontWeight: 700, color: accentColor }}>{fmtTime(session.exit_time)}</span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{
               fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
               background: `${accentColor}1a`, color: accentColor,
@@ -3564,14 +3880,33 @@ function SessionCard({ session, onExit, onEdit }: {
             }}>
               {!isActive ? 'Exited' : overdue ? '⚠ Overdue' : urgent ? 'Leaving soon' : 'Jumping'}
             </span>
+            {/* Add time button (active only) */}
+            {isActive && onAddTime && (
+              <button
+                onClick={() => onAddTime(session)}
+                title="Extend session time"
+                style={{
+                  background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                  borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
+                  color: '#818cf8', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s', flexShrink: 0,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.25)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.12)'; }}
+              >
+                <TimerReset size={13} />
+              </button>
+            )}
+            {/* Edit description button */}
             {onEdit && (
               <button
                 onClick={() => onEdit(session.id)}
+                title="Edit description"
                 style={{
                   background: '#282a32', border: 'none', borderRadius: 8,
                   width: 28, height: 28, cursor: 'pointer',
                   color: '#6b7280', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', transition: 'all 0.15s',
+                  justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0,
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e1e1ed'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#6b7280'; }}
@@ -3584,6 +3919,23 @@ function SessionCard({ session, onExit, onEdit }: {
               <button onClick={() => setExpanded(p => !p)}
                 style={{ background: '#282a32', border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            )}
+            {/* Delete button */}
+            {onDelete && (
+              <button
+                onClick={() => onDelete(session)}
+                title="Delete session"
+                style={{
+                  background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+                  borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
+                  color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s', flexShrink: 0,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.18)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.08)'; }}
+              >
+                <Trash2 size={13} />
               </button>
             )}
           </div>
@@ -4163,6 +4515,8 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [currentTime, setCurrentTime] = useState('');
   const playAlertSound = useRef<((type: 'urgent' | 'overdue') => void) | null>(null);
   const [editingSession, setEditingSession] = useState<JumperSession | null>(null);
+  const [addTimeSession, setAddTimeSession] = useState<JumperSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState<JumperSession | null>(null);
   const [liveSearch, setLiveSearch] = useState('');
   const [colorFilter, setColorFilter] = useState<string[]>([]);
   const [clothingFilter, setClothingFilter] = useState<string[]>([]);
@@ -4274,6 +4628,12 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       actual_exit_time: new Date().toISOString(),
     }).eq('id', id);
     fetchSessions();
+  };
+
+  const handleDeleteSession = async (id: number) => {
+    await supabase.from('jumper_sessions').delete().eq('id', id);
+    fetchSessions();
+    setDeletingSession(null);
   };
   const active = sessions.filter(s => s.status === 'active');
   const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
@@ -4647,7 +5007,13 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                     else cardRefs.current.delete(s.id);
                   }}
                 >
-                  <SessionCard session={s} onExit={handleExit} onEdit={(id) => setEditingSession(sessions.find(x => x.id === id) || null)} />
+                  <SessionCard
+                    session={s}
+                    onExit={handleExit}
+                    onEdit={(id) => setEditingSession(sessions.find(x => x.id === id) || null)}
+                    onAddTime={(s) => setAddTimeSession(s)}
+                    onDelete={(s) => setDeletingSession(s)}
+                  />
                 </div>
               ))}
             </div>
@@ -4675,6 +5041,25 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
           session={editingSession}
           onClose={() => setEditingSession(null)}
           onSaved={() => { fetchSessions(); setEditingSession(null); }}
+        />
+      )}
+
+      {addTimeSession && (
+        <AddTimeModal
+          session={addTimeSession}
+          onClose={() => setAddTimeSession(null)}
+          onSaved={() => { fetchSessions(); setAddTimeSession(null); }}
+        />
+      )}
+
+      {/* PIN-gated delete confirmation */}
+      {deletingSession && (
+        <PinAuthModal
+          title="Authorise Session Deletion"
+          subtitle={`This will permanently delete the session for ${deletingSession.kid_count} client${deletingSession.kid_count !== 1 ? 's' : ''} checked in at ${fmtTime(deletingSession.check_in_time)}. This cannot be undone.`}
+          actionLabel="Delete"
+          onSuccess={() => handleDeleteSession(deletingSession.id)}
+          onCancel={() => setDeletingSession(null)}
         />
       )}
     </>

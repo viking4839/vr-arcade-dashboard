@@ -5017,7 +5017,47 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
   const exportCSV = () => {
     const headers = ['Check-in Time', 'Exit Time', 'Kids', 'Duration', 'Status', 'Description'];
     const rows = filtered.map(s => {
-      const descStr = s.kid_descs ? s.kid_descs : `${s.top_wear || ''} ${s.bottom_wear || ''} ${s.colors || ''}`.trim();
+      let descStr = '';
+
+      if (s.kid_descs) {
+        try {
+          // Parse the JSON array
+          const descs: KidDesc[] = JSON.parse(s.kid_descs);
+
+          // Limit to the first 3 descriptions
+          const previewDescs = descs.slice(0, 3);
+
+          descStr = previewDescs.map((d, i) => {
+            const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
+            const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
+            const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
+            const clothing = [...tops, ...bottoms];
+            const gender = d.gender === 'male' ? 'Male' : d.gender === 'female' ? 'Female' : '';
+            const age = d.isAdult ? 'Adult' : 'Kid';
+
+            // Combine the traits into a readable string
+            const parts = [gender, age, ...colors, ...clothing].filter(Boolean);
+            const combined = parts.length > 0 ? parts.join(', ') : 'No description';
+
+            return descs.length === 1 ? combined : `Kid ${i + 1}: ${combined}`;
+          }).join('  ·  ');
+
+          // Append an indicator if there are more than 3 kids
+          if (descs.length > 3) {
+            descStr += ` (+${descs.length - 3} more)`;
+          }
+        } catch {
+          descStr = 'Invalid description data';
+        }
+      } else {
+        // Fallback for older flat fields
+        const colors = s.colors?.split(',').map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean) ?? [];
+        const tops = s.top_wear?.split(',').map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean) ?? [];
+        const bottoms = s.bottom_wear?.split(',').map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean) ?? [];
+        const clothing = [...tops, ...bottoms];
+        descStr = [...colors, ...clothing].join(', ') || 'No description';
+      }
+
       return [
         fmtTime(s.check_in_time),
         fmtTime(s.exit_time),
@@ -5027,8 +5067,9 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
         descStr,
       ];
     });
+
     const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); // Added charset for better spreadsheet compatibility
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

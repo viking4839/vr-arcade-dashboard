@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
@@ -526,60 +526,155 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Free Play / Birthday Mode Modal
 // ─────────────────────────────────────────────────────────────────────────────
-type FreePlaySession = { endTime: Date; durationHours: number; label: string } | null;
+type FreePlaySession = { endTime: Date; durationHours: number; label: string; packagePrice: number; dayType: 'weekday' | 'weekend' } | null;
+
+// Package pricing options
+const FREE_PLAY_PACKAGES = [
+  { id: 'weekday_20k', label: 'Weekday Standard', dayType: 'weekday' as const, price: 20000, color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)', icon: '📅' },
+  { id: 'weekday_30k', label: 'Weekday Premium', dayType: 'weekday' as const, price: 30000, color: '#818cf8', bg: 'rgba(129,140,248,0.1)', border: 'rgba(129,140,248,0.3)', icon: '⭐' },
+  { id: 'weekend_20k', label: 'Weekend Standard', dayType: 'weekend' as const, price: 20000, color: '#34d399', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.3)', icon: '🎉' },
+  { id: 'weekend_30k', label: 'Weekend Premium', dayType: 'weekend' as const, price: 30000, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)', icon: '👑' },
+];
 
 function FreePlayModal({ onClose, onActivate }: {
   onClose: () => void;
   onActivate: (session: NonNullable<FreePlaySession>) => void;
 }) {
-  const [duration, setDuration] = useState<1 | 2>(1);
+  const isWeekend = [0, 6].includes(new Date().getDay()); // 0=Sun, 6=Sat
+  const [duration, setDuration] = useState<number>(1);
+  const [customDuration, setCustomDuration] = useState('');
+  const [useCustom, setUseCustom] = useState(false);
   const [label, setLabel] = useState('');
+  const [selectedPackage, setSelectedPackage] = useState(
+    FREE_PLAY_PACKAGES.find(p => p.dayType === (isWeekend ? 'weekend' : 'weekday') && p.price === 20000)!
+  );
+  const [pinVerified, setPinVerified] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+
+  const effectiveDuration = useCustom ? (parseFloat(customDuration) || 0) : duration;
+  const pkg = selectedPackage;
+
+  if (showPin) {
+    return (
+      <PinAuthModal
+        title="Authorise Free Play"
+        subtitle="Supervisor or owner PIN required to activate VR Package Mode."
+        actionLabel="Verify"
+        onSuccess={(_, role) => {
+          if (role === 'supervisor' || role === 'owner') {
+            setPinVerified(true);
+            setShowPin(false);
+          } else {
+            alert('Only supervisors or owners can activate Free Play.');
+            setShowPin(false);
+          }
+        }}
+        onCancel={() => setShowPin(false)}
+      />
+    );
+  }
+
   return (
     <div style={{
       position: 'fixed', inset: 0,
       background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      padding: 16, overflowY: 'auto',
     }}>
       <div style={{
-        background: 'var(--surface)', border: '1px solid rgba(245,158,11,0.35)',
-        borderRadius: 16, padding: 32, maxWidth: 420, width: '90%',
+        background: 'var(--surface)', border: `1px solid ${pkg.border}`,
+        borderRadius: 16, padding: 28, maxWidth: 460, width: '100%',
         boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <div style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <PartyPopper size={22} color="#f59e0b" />
-          </div>
+            background: `${pkg.color}20`, border: `1px solid ${pkg.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 22,
+          }}>{pkg.icon}</div>
           <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--text)', margin: 0 }}>Free Play Mode</h2>
-            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Birthday packages & unlimited play</p>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--text)', margin: 0 }}>VR Package Mode</h2>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              Today is a <strong style={{ color: isWeekend ? '#34d399' : '#60a5fa' }}>{isWeekend ? 'Weekend' : 'Weekday'}</strong>
+            </p>
           </div>
         </div>
-        <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 22, marginTop: 16 }}>
-          <p style={{ fontSize: 13, color: '#fbbf24', lineHeight: 1.6, margin: 0 }}>
-            While active, <strong>all new sessions will be logged as TEST</strong> (revenue = KSH 0). Normal billing resumes automatically when the timer ends.
-          </p>
-        </div>
-        <div style={{ marginBottom: 18 }}>
-          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Duration</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {([1, 2] as const).map(h => (
-              <button key={h} onClick={() => setDuration(h)} style={{
-                flex: 1, padding: '12px', borderRadius: 10, border: `1px solid ${duration === h ? '#f59e0b' : 'var(--border)'}`,
-                background: duration === h ? 'rgba(245,158,11,0.15)' : 'var(--surface2)',
-                color: duration === h ? '#fbbf24' : 'var(--muted)',
-                fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+
+        {/* Package selector */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Package Type & Price</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {FREE_PLAY_PACKAGES.map(p => (
+              <button key={p.id} onClick={() => setSelectedPackage(p)} style={{
+                padding: '12px 14px', borderRadius: 12,
+                border: `2px solid ${selectedPackage.id === p.id ? p.color : 'rgba(255,255,255,0.06)'}`,
+                background: selectedPackage.id === p.id ? p.bg : 'var(--surface2)',
+                cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
               }}>
-                {h} Hour{h > 1 ? 's' : ''}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 14 }}>{p.icon}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: selectedPackage.id === p.id ? p.color : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {p.label}
+                  </span>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: selectedPackage.id === p.id ? p.color : 'var(--text)', fontFamily: 'monospace' }}>
+                  KSH {p.price.toLocaleString()}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                  {p.dayType === 'weekend' ? 'Sat & Sun' : 'Mon – Fri'}
+                </div>
               </button>
             ))}
           </div>
         </div>
-        <div style={{ marginBottom: 22 }}>
-          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Label (optional)</label>
+
+        {/* Revenue notice */}
+        <div style={{ background: `${pkg.color}12`, border: `1px solid ${pkg.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: pkg.color, lineHeight: 1.6, margin: 0 }}>
+            <strong>KSH {pkg.price.toLocaleString()}</strong> will be added to today's revenue.
+            Individual VR sessions during this window will be logged as <strong>TEST (KSH 0)</strong> — the package price covers them all.
+          </p>
+        </div>
+
+        {/* Duration */}
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Duration</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            {([1, 2, 3] as const).map(h => (
+              <button key={h} onClick={() => { setDuration(h); setUseCustom(false); }} style={{
+                flex: 1, padding: '10px', borderRadius: 10,
+                border: `1px solid ${!useCustom && duration === h ? pkg.color : 'var(--border)'}`,
+                background: !useCustom && duration === h ? pkg.bg : 'var(--surface2)',
+                color: !useCustom && duration === h ? pkg.color : 'var(--muted)',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>
+                {h}h
+              </button>
+            ))}
+            <button onClick={() => setUseCustom(true)} style={{
+              flex: 1, padding: '10px', borderRadius: 10,
+              border: `1px solid ${useCustom ? pkg.color : 'var(--border)'}`,
+              background: useCustom ? pkg.bg : 'var(--surface2)',
+              color: useCustom ? pkg.color : 'var(--muted)',
+              fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}>Custom</button>
+          </div>
+          {useCustom && (
+            <input
+              type="number" min="0.25" max="12" step="0.25"
+              value={customDuration}
+              onChange={e => setCustomDuration(e.target.value)}
+              placeholder="e.g. 1.5"
+              autoFocus
+              style={{ ...inputStyle, fontSize: 14 }}
+            />
+          )}
+        </div>
+
+        {/* Label */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Label (optional)</label>
           <input
             type="text"
             placeholder="e.g. John's Birthday Party"
@@ -589,20 +684,48 @@ function FreePlayModal({ onClose, onActivate }: {
             maxLength={60}
           />
         </div>
+
+        {/* PIN verified badge */}
+        {pinVerified && (
+          <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: '#34d399', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ShieldCheck size={14} /> Supervisor verified — ready to activate
+          </div>
+        )}
+
+        {/* Summary row */}
+        <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '10px 14px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {effectiveDuration > 0 ? `${effectiveDuration}h · ${pkg.label}` : 'Set a duration'}
+          </span>
+          <span style={{ fontSize: 16, fontWeight: 800, color: pkg.color }}>KSH {pkg.price.toLocaleString()}</span>
+        </div>
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={onClose} style={{
             flex: 1, padding: '11px', borderRadius: 8,
             border: '1px solid var(--border)', background: 'var(--surface2)',
             color: 'var(--text)', fontSize: 13, cursor: 'pointer',
           }}>Cancel</button>
-          <button onClick={() => {
-            const endTime = new Date(Date.now() + duration * 60 * 60 * 1000);
-            onActivate({ endTime, durationHours: duration, label: label.trim() || `Free Play (${duration}h)` });
-          }} style={{
-            flex: 2, padding: '11px', borderRadius: 8, border: 'none',
-            background: '#f59e0b', color: '#000', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-          }}>
-            🎉 Activate Free Play
+          <button
+            onClick={() => {
+              if (!pinVerified) { setShowPin(true); return; }
+              if (effectiveDuration <= 0) { alert('Please set a valid duration.'); return; }
+              const endTime = new Date(Date.now() + effectiveDuration * 60 * 60 * 1000);
+              onActivate({
+                endTime,
+                durationHours: effectiveDuration,
+                label: label.trim() || `${pkg.label} (${effectiveDuration}h)`,
+                packagePrice: pkg.price,
+                dayType: pkg.dayType,
+              });
+            }}
+            style={{
+              flex: 2, padding: '11px', borderRadius: 8, border: 'none',
+              background: pinVerified ? pkg.color : '#374151',
+              color: pinVerified ? '#000' : '#9ca3af',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            }}>
+            {pinVerified ? `🎉 Activate · KSH ${pkg.price.toLocaleString()}` : '🔒 Verify PIN to Activate'}
           </button>
         </div>
       </div>
@@ -615,10 +738,14 @@ function FreePlayBanner({ session, onEnd }: {
   onEnd: () => void;
 }) {
   const [remaining, setRemaining] = useState('');
+  // Use a ref for onEnd to avoid stale closure inside the interval
+  const onEndRef = useRef(onEnd);
+  useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
+
   useEffect(() => {
     const tick = () => {
       const ms = session.endTime.getTime() - Date.now();
-      if (ms <= 0) { onEnd(); return; }
+      if (ms <= 0) { onEndRef.current(); return; }
       const h = Math.floor(ms / 3600000);
       const m = Math.floor((ms % 3600000) / 60000);
       const s = Math.floor((ms % 60000) / 1000);
@@ -627,7 +754,7 @@ function FreePlayBanner({ session, onEnd }: {
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [session, onEnd]);
+  }, [session]);
   return (
     <div style={{
       background: 'linear-gradient(90deg, rgba(245,158,11,0.22) 0%, rgba(245,158,11,0.09) 100%)',
@@ -641,6 +768,11 @@ function FreePlayBanner({ session, onEnd }: {
         <PartyPopper size={16} color="#f59e0b" />
         <span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', letterSpacing: '0.04em' }}>FREE PLAY ACTIVE</span>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>· {session.label}</span>
+        {session.packagePrice > 0 && (
+          <span style={{ fontSize: 12, color: '#10b981', background: 'rgba(16,185,129,0.12)', padding: '2px 10px', borderRadius: 20, fontWeight: 700 }}>
+            KSH {session.packagePrice.toLocaleString()}
+          </span>
+        )}
         <span style={{
           fontSize: 12, color: '#fbbf24', background: 'rgba(245,158,11,0.14)',
           padding: '2px 10px', borderRadius: 20, fontWeight: 700,
@@ -802,7 +934,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
         {/* Free Play / Birthday Mode button */}
         <button
           onClick={onFreePlay}
-          title={collapsed ? "Free Play Mode" : undefined}
+          title={collapsed ? "VR Package Mode" : undefined}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -825,7 +957,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.08)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.3)'; }}
         >
           <PartyPopper size={17} />
-          {!collapsed && "Free Play Mode"}
+          {!collapsed && "VR Package Mode"}
         </button>
         {/* Back to landing */}
         <button
@@ -1776,7 +1908,8 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
     setPendingChange({ logId, newStatus });
   };
 
-  const applyStatusChange = (logId: number, newStatus: GameLog['status']) => {
+  const applyStatusChange = async (logId: number, newStatus: GameLog['status']) => {
+    // 1. Optimistically update local state so UI responds instantly
     setStatusOverrides(prev => {
       const next = new Map(prev);
       const original = logs.find(l => l.id === logId)?.status;
@@ -1788,6 +1921,39 @@ function ActivityView({ logs, freePlaySession, statusOverrides, setStatusOverrid
       return next;
     });
     setPendingChange(null);
+
+    // 2. Persist directly via SQL — bypasses any RLS/type-cast issues
+    // that the .update() client method can silently swallow.
+    const { error } = await supabase.rpc('update_game_log_status', {
+      log_id: logId,
+      new_status: newStatus,
+    });
+
+    if (error) {
+      // RPC not found — fall back to the standard REST update
+      console.warn('RPC unavailable, falling back to REST update:', error.message);
+      const { error: restError, data } = await supabase
+        .from('game_logs')
+        .update({ status: newStatus })
+        .eq('id', logId)
+        .select('id, status')
+        .single();
+
+      if (restError) {
+        console.error('REST update also failed:', restError);
+        // Roll back optimistic update
+        setStatusOverrides(prev => {
+          const next = new Map(prev);
+          next.delete(logId);
+          return next;
+        });
+        alert(`Could not save status change: ${restError.message}`);
+        return;
+      }
+      console.log('Status saved via REST:', data);
+    } else {
+      console.log('Status saved via RPC for log', logId, '→', newStatus);
+    }
   };
 
   const allMachineIds = useMemo(() =>
@@ -2967,15 +3133,24 @@ function fmtTime(iso: string) {
 
 // ─── Timer display (live countdown) ──────────────────────────────────────────
 function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
-  const [tick, setTick] = useState(0);
+  const [label, setLabel] = useState('');
+  const [urgent, setUrgent] = useState(false);
+  const [overdue, setOverdue] = useState(false);
+
   useEffect(() => {
     if (status !== 'active') return;
-    const t = setInterval(() => setTick(p => p + 1), 1000);
+    const tick = () => {
+      const result = timeUntilExit(exitTime);
+      setLabel(result.label);
+      setUrgent(result.urgent);
+      setOverdue(result.overdue);
+    };
+    tick(); // run immediately
+    const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [status]);
+  }, [exitTime, status]);
 
   if (status === 'exited') return <span style={{ color: '#6b7280', fontSize: 13 }}>Exited</span>;
-  const { label, urgent, overdue } = timeUntilExit(exitTime);
   return (
     <span style={{
       fontSize: 13, fontWeight: 700,
@@ -3229,7 +3404,7 @@ function PinAuthModal({ title, subtitle, onSuccess, onCancel, actionLabel = 'Con
   const dots = Array.from({ length: 4 }, (_, i) => i < pin.length);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,16,0.97)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: '#1d1f28', borderRadius: 24, width: '100%', maxWidth: 340, padding: '28px 24px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
         {/* Icon */}
         <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(123,97,255,0.15)', border: '1px solid rgba(123,97,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
@@ -3329,7 +3504,7 @@ function AddTimeModal({ session, onClose, onSaved }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,16,0.97)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 400, width: '100%', padding: '24px 20px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <div style={{ width: 36, height: 36, borderRadius: '50%', background: session.status === 'exited' ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -3471,7 +3646,7 @@ function TimeEditModal({
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,16,0.97)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 480, width: '100%', padding: '24px', boxShadow: '0 24px 60px rgba(0,0,0,0.6)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#e1e1ed', marginBottom: 6 }}>Edit Session Times</h2>
         <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>Set the actual check‑in time and duration for a client who arrived before check‑in.</p>
@@ -3989,7 +4164,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   <div style={{ marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>⏱️ Edit Session Times</p>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>⏱️ Session Times</p>
                         <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
                           Check‑in: {format(checkInTime, 'HH:mm')} · Exit: {format(exitTime, 'HH:mm')}
                         </p>
@@ -4763,6 +4938,21 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   );
 }
 
+// Memoize SessionCard — only re-render if the session's key fields actually changed.
+const MemoSessionCard = memo(SessionCard, (prev, next) => {
+  return (
+    prev.session.id === next.session.id &&
+    prev.session.status === next.session.status &&
+    prev.session.exit_time === next.session.exit_time &&
+    prev.session.bonus_minutes === next.session.bonus_minutes &&
+    prev.session.kid_count === next.session.kid_count &&
+    prev.session.kid_descs === next.session.kid_descs &&
+    prev.session.top_wear === next.session.top_wear &&
+    prev.session.bottom_wear === next.session.bottom_wear &&
+    prev.session.colors === next.session.colors
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Trampoline Records & Analytics View
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5114,7 +5304,7 @@ function EditKidModal({ session, onClose, onSaved }: {
   const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,11,16,0.96)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: '#1d1f28', borderRadius: 24, maxWidth: 500, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 20 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#e1e1ed', marginBottom: 16 }}>Edit Descriptions</h2>
         {kidDescs.map((desc, i) => (
@@ -5221,14 +5411,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     return () => { ch.unsubscribe(); };
   }, [fetchSessions]);
 
-  // Live tick every 10s to update timers and check for alerts
-  useEffect(() => {
-    const t = setInterval(() => {
-      tickRef.current += 1;
-      setSessions(prev => [...prev]); // force re-render for live timers
-    }, 10000);
-    return () => clearInterval(t);
-  }, []);
+  // Each LiveTimer component owns its own 1s interval — no global tick needed
 
   // In-app alert for sessions about to exit (no package needed)
   useEffect(() => {
@@ -5246,7 +5429,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     });
   }, [sessions, alertShown]);
 
-  const handleExit = async (id: number) => {
+  const handleExit = useCallback(async (id: number) => {
     const session = sessions.find(s => s.id === id);
     if (session) {
       const exitTime = new Date(session.exit_time);
@@ -5262,13 +5445,13 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       actual_exit_time: new Date().toISOString(),
     }).eq('id', id);
     fetchSessions();
-  };
+  }, [sessions, fetchSessions]);
 
-  const handleDeleteSession = async (id: number) => {
+  const handleDeleteSession = useCallback(async (id: number) => {
     await supabase.from('jumper_sessions').delete().eq('id', id);
     fetchSessions();
     setDeletingSession(null);
-  };
+  }, [fetchSessions]);
   const active = sessions.filter(s => s.status === 'active');
   const overdueSessions = active.filter(s => timeUntilExit(s.exit_time).overdue);
   const urgentSessions = active.filter(s => { const { urgent, overdue } = timeUntilExit(s.exit_time); return urgent && !overdue; });
@@ -5338,6 +5521,14 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       });
     }
 
+    // Cap exited sessions to prevent DOM bloat on mobile —
+    // active sessions always show in full; exited capped at 15.
+    const MAX_EXITED = 15;
+    if (tab !== 'active') {
+      const activePart = filtered.filter(s => s.status === 'active');
+      const exitedPart = filtered.filter(s => s.status !== 'active').slice(0, MAX_EXITED);
+      return [...activePart, ...exitedPart];
+    }
     return filtered;
   }, [tab, active, sessions, liveSearch, colorFilter, clothingFilter, genderFilter, ageFilter]);
 
@@ -5357,6 +5548,8 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         @keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
         textarea { font-family: inherit; }
         input::placeholder, textarea::placeholder { color: #4b5563; }
+        .session-card-wrap { contain: layout style; transform: translateZ(0); -webkit-transform: translateZ(0); }
+        @media (max-width: 480px) { * { transition-duration: 0s !important; } }
       `}</style>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
@@ -5636,12 +5829,13 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               {displayed.map(s => (
                 <div
                   key={s.id}
+                  className="session-card-wrap"
                   ref={el => {
                     if (el) cardRefs.current.set(s.id, el);
                     else cardRefs.current.delete(s.id);
                   }}
                 >
-                  <SessionCard
+                  <MemoSessionCard
                     session={s}
                     onExit={handleExit}
                     onEdit={(id) => setEditingSession(sessions.find(x => x.id === id) || null)}
@@ -5733,8 +5927,38 @@ export default function Dashboard() {
   }, [statusOverrides]);
 
   // ── FREE PLAY MODE ────────────────────────────────────────────────────────
-  const [freePlaySession, setFreePlaySession] = useState<FreePlaySession>(null);
+  const [freePlaySession, setFreePlaySession] = useState<FreePlaySession>(() => {
+    // Rehydrate from localStorage so free play survives page reloads
+    try {
+      const stored = localStorage.getItem('freePlaySession');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const endTime = new Date(parsed.endTime);
+        // Discard if already expired
+        if (endTime.getTime() > Date.now()) {
+          return { endTime, durationHours: parsed.durationHours, label: parsed.label, packagePrice: parsed.packagePrice ?? 0, dayType: parsed.dayType ?? 'weekday' };
+        }
+        localStorage.removeItem('freePlaySession');
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
   const [showFreePlayModal, setShowFreePlayModal] = useState(false);
+
+  // Keep localStorage in sync with freePlaySession state
+  useEffect(() => {
+    if (freePlaySession) {
+      localStorage.setItem('freePlaySession', JSON.stringify({
+        endTime: freePlaySession.endTime.toISOString(),
+        durationHours: freePlaySession.durationHours,
+        label: freePlaySession.label,
+        packagePrice: freePlaySession.packagePrice,
+        dayType: freePlaySession.dayType,
+      }));
+    } else {
+      localStorage.removeItem('freePlaySession');
+    }
+  }, [freePlaySession]);
 
   // ── DATA HOOKS (must be called unconditionally) ────────────────────────────
   const { logs, setLogs, loading } = useGameLogs(1000);
@@ -6039,9 +6263,30 @@ export default function Dashboard() {
       {showFreePlayModal && (
         <FreePlayModal
           onClose={() => setShowFreePlayModal(false)}
-          onActivate={(session) => {
+          onActivate={async (session) => {
             setFreePlaySession(session);
             setShowFreePlayModal(false);
+
+            // Write a special FULL GAME revenue row to game_logs so the
+            // package price is reflected in the dashboard and persists in the DB.
+            // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
+            if (session.packagePrice > 0) {
+              const now = new Date();
+              const endTime = session.endTime;
+              const { error } = await supabase.from('game_logs').insert({
+                computer_id: 'FREE_PLAY',
+                game_name: session.label,
+                start_time: now.toISOString(),
+                end_time: endTime.toISOString(),
+                duration_minutes: Math.round(session.durationHours * 60),
+                revenue_ksh: session.packagePrice,
+                status: 'FULL GAME',
+                date: format(now, 'yyyy-MM-dd'),
+              });
+              if (error) {
+                console.error('Failed to save free play revenue row:', error);
+              }
+            }
           }}
         />
       )}

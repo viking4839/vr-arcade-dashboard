@@ -3296,12 +3296,12 @@ function AddTimeModal({ session, onClose, onSaved }: {
   const handleSave = async () => {
     if (!finalMins || finalMins <= 0) { setError('Please select or enter a valid time.'); return; }
     setSaving(true);
-    
+
     const updates: Partial<JumperSession> = {
       exit_time: newExit.toISOString(),
       bonus_minutes: session.bonus_minutes + finalMins,
     };
-    
+
     // If session was exited, reactivate it
     if (session.status === 'exited') {
       updates.status = 'active';
@@ -3310,7 +3310,7 @@ function AddTimeModal({ session, onClose, onSaved }: {
 
     const { error: err } = await supabase.from('jumper_sessions').update(updates).eq('id', session.id);
     setSaving(false);
-    
+
     if (err) { setError('Failed to update time. Try again.'); return; }
     onSaved();
     onClose();
@@ -3408,25 +3408,47 @@ function AddTimeModal({ session, onClose, onSaved }: {
   );
 }
 
-// ─── Check-in form (Fast, zero keyboard) ─────────────────────────────────────
+// ─── Check-in form (Two-screen: Standard + Group Package, with full duration controls) ───
 function CheckInForm({ onDone, onCancel, activeSessions }: {
   onDone: () => void; onCancel: () => void; activeSessions: JumperSession[];
 }) {
+  // ── Top-level mode ─────────────────────────────────────────────────────
+  const [checkInMode, setCheckInMode] = useState<'standard' | 'package'>('standard');
+
+  // ── Shared fields ──────────────────────────────────────────────────────
   const [kidCount, setKidCount] = useState(1);
   const [hours, setHours] = useState(1);
   const [customHourMode, setCustomHourMode] = useState(false);
   const [customHourInput, setCustomHourInput] = useState('');
-  const [bonusMins, setBonusMins] = useState(0);      // coarse bonus from chips
-  const [fineTune, setFineTune] = useState(0);         // ±1-10 min fine-tune
-  const [kidDescs, setKidDescs] = useState<KidDesc[]>([{ tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false }]);
-  const [activeKid, setActiveKid] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [bonusMins, setBonusMins] = useState(0);
+  const [fineTune, setFineTune] = useState(0);
 
-  // Special categories toggle + selected category
+  // ── Special Categories (Standard mode only) ────────────────────────────
   const [showSpecial, setShowSpecial] = useState(false);
   const [specialCategory, setSpecialCategory] = useState<string | null>(null);
 
+  // ── Per‑kid descriptions (Standard mode only) ──────────────────────────
+  const [kidDescs, setKidDescs] = useState<KidDesc[]>([
+    { tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false }
+  ]);
+  const [activeKid, setActiveKid] = useState(0);
+
+  // ── Group Package fields ───────────────────────────────────────────────
+  const PACKAGE_OPTIONS = [
+    { id: 'birthday', label: 'Birthday Package', icon: '🎂', color: '#f472b6', desc: 'Party & play for birthday celebrations' },
+    { id: 'school', label: 'School Group', icon: '🎓', color: '#60a5fa', desc: 'Educational group & school trips' },
+    { id: 'team_building', label: 'Team Building', icon: '🤝', color: '#34d399', desc: 'Corporate & team activities' },
+    { id: 'other', label: 'Other / Custom', icon: '📦', color: '#a78bfa', desc: 'Custom group package' },
+  ];
+  const [selectedPackage, setSelectedPackage] = useState<string>('birthday');
+  const [customPackageName, setCustomPackageName] = useState('');
+  const [groupNote, setGroupNote] = useState('');
+
+  // ── UI state ───────────────────────────────────────────────────────────
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // ── Special Categories definitions ─────────────────────────────────────
   const SPECIAL_CATEGORIES = [
     {
       id: 'unlimited',
@@ -3442,7 +3464,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       id: 'standard_pass',
       label: 'Standard Pass',
       icon: '🎫',
-      tagline: 'Full-day standard access',
+      tagline: 'Full‑day standard access',
       color: '#34d399',
       gradient: 'linear-gradient(135deg, #059669, #34d399)',
       bg: 'rgba(52,211,153,0.12)',
@@ -3452,74 +3474,106 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       id: 'premium_pass',
       label: 'Premium Pass',
       icon: '👑',
-      tagline: 'Full-day premium access',
+      tagline: 'Full‑day premium access',
       color: '#a78bfa',
       gradient: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
       bg: 'rgba(167,139,250,0.12)',
       border: 'rgba(167,139,250,0.35)',
     },
-  ] as const;
+  ];
 
-  const selectedCat = SPECIAL_CATEGORIES.find(c => c.id === specialCategory);
-
-  // End-of-day exit = today at 22:00 (10 PM) — adjust to your closing time
   const endOfDay = () => {
     const d = new Date();
-    d.setHours(22, 0, 0, 0);
-    // If already past 22:00, use midnight
+    d.setHours(22, 0, 0, 0); // 10 PM closing time – adjust as needed
     if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
     return d;
   };
 
   const effectiveHours = customHourMode ? (parseFloat(customHourInput) || 0) : hours;
-  const totalMins = specialCategory ? 0 : (effectiveHours * 60 + bonusMins + fineTune);
-  const exitTime = specialCategory ? endOfDay() : new Date(Date.now() + totalMins * 60_000);
+  const totalMins = (checkInMode === 'standard' && specialCategory) ? 0 : (effectiveHours * 60 + bonusMins + fineTune);
+  const exitTime = (checkInMode === 'standard' && specialCategory) ? endOfDay() : new Date(Date.now() + totalMins * 60000);
   const exitLabel = exitTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
+  const selectedCat = (checkInMode === 'standard' && specialCategory)
+    ? SPECIAL_CATEGORIES.find(c => c.id === specialCategory)
+    : null;
+
+  // ── Handlers ────────────────────────────────────────────────────────────
   const handleKidCountChange = (newCount: number) => {
     setKidCount(newCount);
     setKidDescs(prev => {
       if (newCount > prev.length) {
-        const empty: KidDesc = { tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false };
-        return [...prev, ...Array(newCount - prev.length).fill(empty)];
+        const emptyDesc: KidDesc = { tops: [], bottoms: [], colors: [], gender: 'other', isAdult: false };
+        return [...prev, ...Array(newCount - prev.length).fill(emptyDesc)];
       }
       return prev.slice(0, newCount);
     });
-    setActiveKid(p => Math.min(p, newCount - 1));
+    setActiveKid(prev => Math.min(prev, newCount - 1));
   };
 
-  const updateKidDesc = (i: number, d: KidDesc) =>
-    setKidDescs(prev => prev.map((x, idx) => idx === i ? d : x));
+  const updateKidDesc = (index: number, desc: KidDesc) => {
+    setKidDescs(prev => prev.map((d, i) => i === index ? desc : d));
+  };
 
   const handleSubmit = async () => {
+    if (checkInMode === 'package' && selectedPackage === 'other' && !customPackageName.trim()) {
+      setError('Please enter a package name.'); return;
+    }
     setSaving(true); setError('');
+
     const checkInTime = new Date().toISOString();
     const first = kidDescs[0] ?? { tops: [], bottoms: [], colors: [] };
-    const { error: err } = await supabase.from('jumper_sessions').insert({
+
+    let packageType: string | null = null;
+    let groupNoteValue: string | null = null;
+    let topWear = '';
+    let bottomWear = '';
+    let colors = '';
+    let kidDescsJson: string | null = null;
+
+    if (checkInMode === 'standard') {
+      if (specialCategory) {
+        packageType = specialCategory;
+      }
+      topWear = first.tops.join(',');
+      bottomWear = first.bottoms.join(',');
+      colors = first.colors.join(',');
+      kidDescsJson = kidCount > 1 ? JSON.stringify(kidDescs) : null;
+    } else { // package mode
+      packageType = selectedPackage === 'other' ? customPackageName.trim() : selectedPackage;
+      groupNoteValue = groupNote.trim() || null;
+      // No per‑kid descriptions for packages
+    }
+
+    const payload: any = {
       kid_count: kidCount,
       check_in_time: checkInTime,
-      duration_hours: specialCategory ? 0 : effectiveHours,
-      bonus_minutes: specialCategory ? 0 : (bonusMins + fineTune),
+      duration_hours: (checkInMode === 'standard' && specialCategory) ? 0 : effectiveHours,
+      bonus_minutes: (checkInMode === 'standard' && specialCategory) ? 0 : (bonusMins + fineTune),
       exit_time: exitTime.toISOString(),
       actual_exit_time: null,
       status: 'active',
-      special_category: specialCategory ?? null,
-      top_wear: first.tops.join(','),
-      bottom_wear: first.bottoms.join(','),
-      colors: first.colors.join(','),
-      kid_descs: kidCount > 1 ? JSON.stringify(kidDescs) : null,
-    });
+      package_type: packageType,
+      group_note: groupNoteValue,
+      top_wear: topWear,
+      bottom_wear: bottomWear,
+      colors: colors,
+      kid_descs: kidDescsJson,
+    };
+
+    const { error: err } = await supabase.from('jumper_sessions').insert(payload);
     setSaving(false);
     if (err) { setError('Could not save. Try again.'); return; }
     onDone();
   };
 
+  // ── Styles ──────────────────────────────────────────────────────────────
   const secLabel: React.CSSProperties = {
     fontSize: 11, fontWeight: 700, color: '#6b7280',
-    textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14,
+    textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16,
   };
   const card: React.CSSProperties = {
-    background: '#1d1f28', borderRadius: 20, padding: '20px 18px', marginBottom: 14,
+    background: '#1d1f28', borderRadius: 24, padding: '22px 20px', marginBottom: 16,
   };
   const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
     '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
@@ -3537,24 +3591,23 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
         .fade-slide { animation: fadeSlide 0.22s ease; }
       `}</style>
 
-      {/* ── Sticky header ──────────────────────────────────────── */}
+      {/* Sticky header with mode switcher */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
         background: 'rgba(12,14,22,0.96)', backdropFilter: 'blur(20px)',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
         padding: '14px 20px',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
               <ChevronLeft size={22} />
             </button>
             <div>
-              <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Fast Check-in</p>
+              <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Check‑in</p>
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
             </div>
           </div>
-          {/* Exit time chip — colour-coded by category */}
           <div style={{
             background: selectedCat ? selectedCat.bg : '#1d1f28',
             border: `1px solid ${selectedCat ? selectedCat.border : 'transparent'}`,
@@ -3568,175 +3621,398 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
             </p>
           </div>
         </div>
+
+        {/* Mode switcher tabs */}
+        <div style={{ display: 'flex', background: '#0c0e16', borderRadius: 14, padding: 4, gap: 4 }}>
+          {([
+            { id: 'standard', label: 'Standard Check‑in', icon: '👤' },
+            { id: 'package', label: 'Group Package', icon: '📦' },
+          ] as const).map(m => (
+            <button key={m.id} onClick={() => { setCheckInMode(m.id); setError(''); }}
+              style={{
+                flex: 1, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                fontSize: 13, fontWeight: 700,
+                background: checkInMode === m.id
+                  ? (m.id === 'package' ? 'linear-gradient(135deg, #7c3aed, #6366f1)' : 'linear-gradient(135deg, #059669, #00C853)')
+                  : 'transparent',
+                color: checkInMode === m.id ? '#fff' : '#6b7280',
+                transition: 'all 0.18s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <span>{m.icon}</span> {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ padding: '18px 16px 140px', maxWidth: 480, margin: '0 auto' }}>
+      <div style={{ padding: '20px 16px 130px', maxWidth: 480, margin: '0 auto' }}>
 
-        {/* ── SECTION 1: COUNT ──────────────────────────────────── */}
-        <p style={secLabel}>Quantity · <span style={{ color: '#c9c4d8', textTransform: 'none' }}>Clients in Group</span></p>
+     
+
+        {/* ── SECTION 1: COUNT (both modes) ── */}
+        <p style={secLabel}>
+          {checkInMode === 'package' ? 'Group Size' : 'Quantity'} ·{' '}
+          <span style={{ color: '#c9c4d8' }}>
+            {checkInMode === 'package' ? 'Total clients in package' : 'Clients in Group'}
+          </span>
+        </p>
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontSize: 20, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Number of Clients</p>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Select total count</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>
+                {checkInMode === 'package' ? 'Group Size' : 'Number of Clients'}
+              </p>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+                {checkInMode === 'package' ? 'Enter total count (max 1000)' : 'Select total count'}
+              </p>
             </div>
-            <Stepper large value={kidCount}
-              onDec={() => handleKidCountChange(Math.max(1, kidCount - 1))}
-              onInc={() => handleKidCountChange(Math.min(30, kidCount + 1))} />
+
+            {checkInMode === 'package' ? (
+              // ----- Package mode: numeric input with +/- buttons and direct typing -----
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button
+                  onClick={() => setKidCount(prev => Math.max(1, prev - 1))}
+                  disabled={kidCount <= 1}
+                  style={{
+                    width: 48, height: 48, borderRadius: 16, border: 'none',
+                    background: kidCount <= 1 ? '#1a1d26' : '#282a32',
+                    color: kidCount <= 1 ? '#3a3d4a' : '#c9c4d8',
+                    fontSize: 28, fontWeight: 300, cursor: kidCount <= 1 ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >−</button>
+
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={kidCount}
+                  onChange={(e) => {
+                    let val = parseInt(e.target.value, 10);
+                    if (isNaN(val)) val = 1;
+                    val = Math.min(1000, Math.max(1, val));
+                    setKidCount(val);
+                    // Also update kid descriptions if needed
+                    handleKidCountChange(val);
+                  }}
+                  style={{
+                    width: 100, padding: '12px 8px', borderRadius: 16,
+                    background: '#0c0e16', border: '1px solid rgba(99,102,241,0.4)',
+                    color: '#e1e1ed', fontSize: 28, fontWeight: 800, textAlign: 'center',
+                    outline: 'none', fontFamily: 'Inter, sans-serif',
+                  }}
+                />
+
+                <button
+                  onClick={() => setKidCount(prev => Math.min(1000, prev + 1))}
+                  disabled={kidCount >= 1000}
+                  style={{
+                    width: 48, height: 48, borderRadius: 16, border: 'none',
+                    background: kidCount >= 1000 ? '#1a1d26' : 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)',
+                    color: '#fff', fontSize: 28, fontWeight: 300,
+                    cursor: kidCount >= 1000 ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: kidCount >= 1000 ? 0.4 : 1,
+                  }}
+                >+</button>
+              </div>
+            ) : (
+              // ----- Standard mode: keep the existing Stepper -----
+              <Stepper
+                large
+                value={kidCount}
+                onDec={() => handleKidCountChange(Math.max(1, kidCount - 1))}
+                onInc={() => handleKidCountChange(Math.min(30, kidCount + 1))}
+              />
+            )}
           </div>
         </div>
 
-        {/* ── SECTION 2: SPECIAL CATEGORIES toggle ─────────────── */}
-        <div style={{ marginBottom: 14 }}>
-          <button
-            onClick={() => { setShowSpecial(p => !p); if (showSpecial) setSpecialCategory(null); }}
-            style={{
-              width: '100%', padding: '13px 18px', borderRadius: 16, border: 'none', cursor: 'pointer',
-              background: showSpecial ? 'rgba(245,158,11,0.1)' : '#1d1f28',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              transition: 'all 0.18s',
-              outline: showSpecial ? '1.5px solid rgba(245,158,11,0.4)' : '1.5px solid transparent',
-            }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 20 }}>⭐</span>
-              <div style={{ textAlign: 'left' }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: showSpecial ? '#fbbf24' : '#e1e1ed', margin: 0 }}>Special Categories</p>
-                <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
-                  {selectedCat ? `${selectedCat.icon} ${selectedCat.label} selected` : 'Unlimited, Standard & Premium passes'}
-                </p>
-              </div>
-            </div>
-            <div style={{
-              width: 44, height: 24, borderRadius: 12, position: 'relative', flexShrink: 0,
-              background: showSpecial ? '#f59e0b' : '#282a32',
-              transition: 'background 0.2s',
-            }}>
-              <div style={{
-                position: 'absolute', top: 3, left: showSpecial ? 22 : 3,
-                width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-              }} />
-            </div>
-          </button>
-
-          {/* Category cards — collapsible */}
-          {showSpecial && (
-            <div className="fade-slide" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {SPECIAL_CATEGORIES.map(cat => {
-                const isSelected = specialCategory === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    className="special-card"
-                    onClick={() => setSpecialCategory(isSelected ? null : cat.id)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 14,
-                      padding: '16px 18px', borderRadius: 18, border: 'none', cursor: 'pointer',
-                      background: isSelected ? cat.bg : '#1a1c25',
-                      outline: isSelected ? `2px solid ${cat.color}` : '2px solid rgba(255,255,255,0.05)',
-                      outlineOffset: 0, textAlign: 'left', width: '100%',
-                    }}>
-                    {/* Icon circle */}
-                    <div style={{
-                      width: 48, height: 48, borderRadius: 16, flexShrink: 0,
-                      background: isSelected ? cat.gradient : '#282a32',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 24, transition: 'all 0.18s',
-                      boxShadow: isSelected ? `0 4px 16px ${cat.color}44` : 'none',
-                    }}>
-                      {cat.icon}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 15, fontWeight: 800, color: isSelected ? cat.color : '#e1e1ed', margin: '0 0 3px', transition: 'color 0.15s' }}>{cat.label}</p>
-                      <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{cat.tagline}</p>
-                    </div>
-                    {/* All-day badge */}
-                    <div style={{
-                      flexShrink: 0, padding: '4px 10px', borderRadius: 20,
-                      background: isSelected ? `${cat.color}22` : '#282a32',
-                      border: `1px solid ${isSelected ? cat.border : 'transparent'}`,
-                      fontSize: 10, fontWeight: 700, color: isSelected ? cat.color : '#4b5563',
-                      textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
-                      transition: 'all 0.15s',
-                    }}>
-                      All Day
-                    </div>
-                    {/* Radio dot */}
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                      border: `2px solid ${isSelected ? cat.color : 'rgba(255,255,255,0.15)'}`,
-                      background: isSelected ? cat.color : 'transparent',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.15s',
-                    }}>
-                      {isSelected && <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }} />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ── SECTION 3: DURATION (hidden when special category active) ── */}
-        {!specialCategory && (
+        {/* ── STANDARD MODE: Special Categories + Duration + Per‑kid descs ── */}
+        {checkInMode === 'standard' && (
           <>
-            <p style={secLabel}>Duration</p>
-            <div style={card}>
+            {/* Special Categories toggle */}
+            <div style={{ marginBottom: 14 }}>
+              <button
+                onClick={() => { setShowSpecial(p => !p); if (showSpecial) setSpecialCategory(null); }}
+                style={{
+                  width: '100%', padding: '13px 18px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                  background: showSpecial ? 'rgba(245,158,11,0.1)' : '#1d1f28',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  transition: 'all 0.18s',
+                  outline: showSpecial ? '1.5px solid rgba(245,158,11,0.4)' : '1.5px solid transparent',
+                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>⭐</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: showSpecial ? '#fbbf24' : '#e1e1ed', margin: 0 }}>Special Categories</p>
+                    <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
+                      {selectedCat ? `${selectedCat.icon} ${selectedCat.label} selected` : 'Unlimited, Standard & Premium passes'}
+                    </p>
+                  </div>
+                </div>
+                <div style={{
+                  width: 44, height: 24, borderRadius: 12, position: 'relative', flexShrink: 0,
+                  background: showSpecial ? '#f59e0b' : '#282a32',
+                  transition: 'background 0.2s',
+                }}>
+                  <div style={{ position: 'absolute', top: 3, left: showSpecial ? 22 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
+                </div>
+              </button>
 
-              {/* ── Standard hours row ── */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+              {showSpecial && (
+                <div className="fade-slide" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {SPECIAL_CATEGORIES.map(cat => {
+                    const isSelected = specialCategory === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        className="special-card"
+                        onClick={() => setSpecialCategory(isSelected ? null : cat.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          padding: '16px 18px', borderRadius: 18, border: 'none', cursor: 'pointer',
+                          background: isSelected ? cat.bg : '#1a1c25',
+                          outline: isSelected ? `2px solid ${cat.color}` : '2px solid rgba(255,255,255,0.05)',
+                          outlineOffset: 0, textAlign: 'left', width: '100%',
+                        }}>
+                        <div style={{
+                          width: 48, height: 48, borderRadius: 16, flexShrink: 0,
+                          background: isSelected ? cat.gradient : '#282a32',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 24, transition: 'all 0.18s',
+                          boxShadow: isSelected ? `0 4px 16px ${cat.color}44` : 'none',
+                        }}>{cat.icon}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 15, fontWeight: 800, color: isSelected ? cat.color : '#e1e1ed', margin: '0 0 3px', transition: 'color 0.15s' }}>{cat.label}</p>
+                          <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{cat.tagline}</p>
+                        </div>
+                        <div style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 20, background: isSelected ? `${cat.color}22` : '#282a32', border: `1px solid ${isSelected ? cat.border : 'transparent'}`, fontSize: 10, fontWeight: 700, color: isSelected ? cat.color : '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>All Day</div>
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, border: `2px solid ${isSelected ? cat.color : 'rgba(255,255,255,0.15)'}`, background: isSelected ? cat.color : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
+                          {isSelected && <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }} />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Duration controls – hidden when a special category is active */}
+            {!specialCategory && (
+              <>
+                <p style={{ ...secLabel, marginTop: 8 }}>Duration</p>
+                <div style={card}>
+                  {/* Standard hours row + custom hours toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                    <div>
+                      <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
+                      <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Base playtime</p>
+                    </div>
+                    {customHourMode ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          type="number" min="0.5" max="24" step="0.5"
+                          value={customHourInput}
+                          onChange={e => setCustomHourInput(e.target.value)}
+                          placeholder="e.g. 1.5"
+                          autoFocus
+                          style={{
+                            width: 80, padding: '10px 12px', borderRadius: 12,
+                            background: '#0c0e16', border: '1px solid rgba(99,102,241,0.4)',
+                            color: '#e1e1ed', fontSize: 20, fontWeight: 800,
+                            outline: 'none', textAlign: 'center',
+                          }}
+                        />
+                        <span style={{ fontSize: 14, color: '#6b7280' }}>hrs</span>
+                        <button onClick={() => { setCustomHourMode(false); setCustomHourInput(''); }}
+                          style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 18, padding: '4px', lineHeight: 1 }}>✕</button>
+                      </div>
+                    ) : (
+                      <Stepper large value={hours} onDec={() => setHours(v => Math.max(1, v - 1))} onInc={() => setHours(v => Math.min(12, v + 1))} />
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => { setCustomHourMode(p => !p); setCustomHourInput(String(hours)); }}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 12, color: customHourMode ? '#6b7280' : '#6366f1',
+                      padding: '0 0 16px', fontWeight: 600, display: 'block',
+                    }}>
+                    {customHourMode ? '← Use standard stepper' : '✏ Enter custom hours (e.g. 1.5h, 2.5h)'}
+                  </button>
+
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
+
+                  {/* Bonus chips */}
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Bonus Time</p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                    {[0, 10, 20, 30, 40].map(m => (
+                      <button key={m} onClick={() => setBonusMins(bonusMins === m ? 0 : m)}
+                        style={{
+                          padding: '9px 16px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                          fontSize: 14, fontWeight: 700,
+                          background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : '#282a32',
+                          color: bonusMins === m ? '#fff' : '#c9c4d8',
+                          transition: 'all 0.12s',
+                          transform: bonusMins === m ? 'scale(1.05)' : 'scale(1)',
+                        }}>
+                        {m === 0 ? 'None' : `+${m}m`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
+
+                  {/* Fine‑tune */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>Fine‑tune</p>
+                      <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>Adjust for early arrivals · wristband sync</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button
+                        onClick={() => setFineTune(v => Math.max(-10, v - 1))}
+                        disabled={fineTune <= -10}
+                        style={{
+                          width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+                          background: fineTune <= -10 ? '#1a1c25' : '#282a32',
+                          color: fineTune <= -10 ? '#3a3d4a' : '#ef4444',
+                          fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.1s',
+                        }}>−</button>
+                      <div style={{ minWidth: 52, textAlign: 'center' }}>
+                        <span style={{
+                          fontSize: 20, fontWeight: 800, fontFamily: 'Inter, sans-serif',
+                          color: fineTune === 0 ? '#4b5563' : fineTune > 0 ? '#34d399' : '#f87171',
+                        }}>
+                          {fineTune === 0 ? '±0' : fineTune > 0 ? `+${fineTune}m` : `${fineTune}m`}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setFineTune(v => Math.min(10, v + 1))}
+                        disabled={fineTune >= 10}
+                        style={{
+                          width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+                          background: fineTune >= 10 ? '#1a1c25' : 'linear-gradient(135deg, #059669, #00C853)',
+                          color: fineTune >= 10 ? '#3a3d4a' : '#fff',
+                          fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.1s',
+                        }}>+</button>
+                    </div>
+                  </div>
+                  {fineTune !== 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button onClick={() => setFineTune(0)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#6b7280', cursor: 'pointer', fontWeight: 600 }}>Reset fine‑tune</button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Per‑kid description panel (always shown in Standard mode) */}
+            <>
+              <p style={{ ...secLabel, marginTop: 8 }}>
+                Identification ·{' '}
+                <span style={{ color: '#c9c4d8' }}>
+                  {kidCount === 1 ? 'Quick Description' : `Describe Each Client (${kidCount} total)`}
+                </span>
+              </p>
+
+              {kidCount > 1 && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
+                  {kidDescs.map((desc, i) => {
+                    const isActive = i === activeKid;
+                    const accent = kidColors[i % kidColors.length];
+                    const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+                    return (
+                      <button key={i} className="kid-tab" onClick={() => setActiveKid(i)}
+                        style={{
+                          flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                          background: isActive ? '#1d1f28' : '#0c0e16',
+                          outline: isActive ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
+                          outlineOffset: 0, transition: 'all 0.15s',
+                        }}>
+                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>Kid {i + 1}</span>
+                        {desc.gender && desc.gender !== 'other' && (
+                          <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
+                            {desc.gender === 'male' ? '♂' : '♀'}
+                          </span>
+                        )}
+                        {desc.isAdult !== undefined && (
+                          <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
+                        )}
+                        {hasDesc && !isActive && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />}
+                        {desc.colors.length > 0 && (
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {desc.colors.slice(0, 3).map(cid => {
+                              const c = COLOR_OPTIONS.find(x => x.id === cid);
+                              return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
+                            })}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16 }}>
+                <KidDescPanel
+                  key={activeKid}
+                  kidIndex={activeKid}
+                  kidCount={kidCount}
+                  desc={kidDescs[activeKid] ?? { tops: [], bottoms: [], colors: [] }}
+                  onChange={desc => updateKidDesc(activeKid, desc)}
+                />
+              </div>
+
+              {kidCount > 1 && activeKid < kidCount - 1 && (
+                <button onClick={() => setActiveKid(activeKid + 1)}
+                  style={{ width: '100%', padding: '14px', borderRadius: 14, border: 'none', background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s' }}>
+                  Next → Kid {activeKid + 2}
+                </button>
+              )}
+
+              {kidCount > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+                  {kidDescs.map((desc, i) => {
+                    const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
+                    const accent = kidColors[i % kidColors.length];
+                    return (
+                      <div key={i} style={{ width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4, background: hasDesc ? accent : i === activeKid ? '#7B61FF' : '#282a32', transition: 'all 0.2s' }} />
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          </>
+        )}
+
+        {/* ── GROUP PACKAGE MODE: Simple duration + Package selector + note ── */}
+        {checkInMode === 'package' && (
+          <>
+            <p style={{ ...secLabel, marginTop: 8 }}>Duration</p>
+            <div style={card}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
                 <div>
                   <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
                   <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Base playtime</p>
                 </div>
-                {customHourMode ? (
-                  /* Custom hour input */
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="number" min="0.5" max="24" step="0.5"
-                      value={customHourInput}
-                      onChange={e => setCustomHourInput(e.target.value)}
-                      placeholder="e.g. 1.5"
-                      autoFocus
-                      style={{
-                        width: 80, padding: '10px 12px', borderRadius: 12,
-                        background: '#0c0e16', border: '1px solid rgba(99,102,241,0.4)',
-                        color: '#e1e1ed', fontSize: 20, fontWeight: 800,
-                        outline: 'none', textAlign: 'center',
-                      }}
-                    />
-                    <span style={{ fontSize: 14, color: '#6b7280' }}>hrs</span>
-                    <button onClick={() => { setCustomHourMode(false); setCustomHourInput(''); }}
-                      style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 18, padding: '4px', lineHeight: 1 }}>✕</button>
-                  </div>
-                ) : (
-                  <Stepper large value={hours} onDec={() => setHours(v => Math.max(1, v - 1))} onInc={() => setHours(v => Math.min(12, v + 1))} />
-                )}
+                <Stepper large value={hours} onDec={() => setHours(v => Math.max(1, v - 1))} onInc={() => setHours(v => Math.min(8, v + 1))} />
               </div>
-
-              {/* Custom hours toggle link */}
-              <button
-                onClick={() => { setCustomHourMode(p => !p); setCustomHourInput(String(hours)); }}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 12, color: customHourMode ? '#6b7280' : '#6366f1',
-                  padding: '0 0 16px', fontWeight: 600, display: 'block',
-                }}>
-                {customHourMode ? '← Use standard stepper' : '✏ Enter custom hours (e.g. 1.5h, 2.5h)'}
-              </button>
-
-              {/* Divider */}
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
-
-              {/* ── Coarse bonus chips ── */}
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Bonus Time</p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Bonus Time</p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {[0, 10, 20, 30, 40].map(m => (
                   <button key={m} onClick={() => setBonusMins(bonusMins === m ? 0 : m)}
                     style={{
-                      padding: '9px 16px', borderRadius: 12, border: 'none', cursor: 'pointer',
-                      fontSize: 14, fontWeight: 700,
+                      padding: '10px 18px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                      fontSize: 15, fontWeight: 700,
                       background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : '#282a32',
                       color: bonusMins === m ? '#fff' : '#c9c4d8',
                       transition: 'all 0.12s',
@@ -3746,139 +4022,61 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   </button>
                 ))}
               </div>
+            </div>
 
-              {/* Divider */}
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
-
-              {/* ── Fine-tune ±1–10 min ── */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>Fine-tune</p>
-                  <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
-                    Adjust for early arrivals · wristband sync
-                  </p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button
-                    onClick={() => setFineTune(v => Math.max(-10, v - 1))}
-                    disabled={fineTune <= -10}
-                    style={{
-                      width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
-                      background: fineTune <= -10 ? '#1a1c25' : '#282a32',
-                      color: fineTune <= -10 ? '#3a3d4a' : '#ef4444',
-                      fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.1s',
-                    }}>−</button>
-                  <div style={{ minWidth: 52, textAlign: 'center' }}>
-                    <span style={{
-                      fontSize: 20, fontWeight: 800, fontFamily: 'Inter, sans-serif',
-                      color: fineTune === 0 ? '#4b5563' : fineTune > 0 ? '#34d399' : '#f87171',
-                    }}>
-                      {fineTune === 0 ? '±0' : fineTune > 0 ? `+${fineTune}m` : `${fineTune}m`}
-                    </span>
+            <p style={{ ...secLabel, marginTop: 8 }}>Package Type</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {PACKAGE_OPTIONS.map(pkg => (
+                <button key={pkg.id} onClick={() => setSelectedPackage(pkg.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+                    borderRadius: 16, border: 'none', cursor: 'pointer', textAlign: 'left',
+                    background: selectedPackage === pkg.id ? `rgba(${pkg.color === '#f472b6' ? '244,114,182' : pkg.color === '#60a5fa' ? '96,165,250' : pkg.color === '#34d399' ? '52,211,153' : '167,139,250'},0.12)` : '#1d1f28',
+                    outline: selectedPackage === pkg.id ? `2px solid ${pkg.color}` : '2px solid transparent',
+                    outlineOffset: 0, transition: 'all 0.15s',
+                  }}>
+                  <span style={{ fontSize: 28, flexShrink: 0 }}>{pkg.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: selectedPackage === pkg.id ? pkg.color : '#e1e1ed', margin: '0 0 2px' }}>{pkg.label}</p>
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{pkg.desc}</p>
                   </div>
-                  <button
-                    onClick={() => setFineTune(v => Math.min(10, v + 1))}
-                    disabled={fineTune >= 10}
-                    style={{
-                      width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
-                      background: fineTune >= 10 ? '#1a1c25' : 'linear-gradient(135deg, #059669, #00C853)',
-                      color: fineTune >= 10 ? '#3a3d4a' : '#fff',
-                      fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.1s',
-                    }}>+</button>
-                </div>
+                  <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${selectedPackage === pkg.id ? pkg.color : 'rgba(255,255,255,0.15)'}`, background: selectedPackage === pkg.id ? pkg.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {selectedPackage === pkg.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {selectedPackage === 'other' && (
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ ...secLabel, marginBottom: 8 }}>Package Name</p>
+                <input
+                  type="text"
+                  value={customPackageName}
+                  onChange={e => setCustomPackageName(e.target.value)}
+                  placeholder="Enter custom package name…"
+                  style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 15, width: '100%', outline: 'none' }}
+                  autoFocus
+                />
               </div>
-              {fineTune !== 0 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                  <button onClick={() => setFineTune(0)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#6b7280', cursor: 'pointer', fontWeight: 600 }}>Reset fine-tune</button>
-                </div>
-              )}
+            )}
+
+            <p style={{ ...secLabel, marginTop: 8 }}>Group Note <span style={{ textTransform: 'none', fontSize: 10, color: '#4b5563', fontWeight: 400 }}>(optional)</span></p>
+            <div style={{ marginBottom: 16 }}>
+              <textarea
+                value={groupNote}
+                onChange={e => setGroupNote(e.target.value)}
+                placeholder="any relevant group information"
+                rows={3}
+                style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 14, width: '100%', outline: 'none', resize: 'none', lineHeight: 1.6 }}
+              />
             </div>
           </>
         )}
 
-        {/* ── SECTION 4: IDENTIFICATION ─────────────────────────── */}
-        <p style={secLabel}>
-          Identification ·{' '}
-          <span style={{ color: '#c9c4d8', textTransform: 'none' }}>
-            {kidCount === 1 ? 'Quick Description' : `Describe Each Client (${kidCount} total)`}
-          </span>
-        </p>
-
-        {kidCount > 1 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
-            {kidDescs.map((desc, i) => {
-              const isAct = i === activeKid;
-              const accent = kidColors[i % kidColors.length];
-              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
-              return (
-                <button key={i} className="kid-tab" onClick={() => setActiveKid(i)}
-                  style={{
-                    flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                    background: isAct ? '#1d1f28' : '#0c0e16',
-                    outline: isAct ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
-                    outlineOffset: 0, transition: 'all 0.15s',
-                  }}>
-                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
-                  </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: isAct ? '#e1e1ed' : '#6b7280' }}>Kid {i + 1}</span>
-                  {desc.gender && desc.gender !== 'other' && (
-                    <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
-                      {desc.gender === 'male' ? '♂' : '♀'}
-                    </span>
-                  )}
-                  {desc.isAdult !== undefined && (
-                    <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
-                  )}
-                  {hasDesc && !isAct && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />}
-                  {desc.colors.length > 0 && (
-                    <div style={{ display: 'flex', gap: 3 }}>
-                      {desc.colors.slice(0, 3).map(cid => {
-                        const c = COLOR_OPTIONS.find(x => x.id === cid);
-                        return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
-                      })}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 14 }}>
-          <KidDescPanel
-            key={activeKid}
-            kidIndex={activeKid}
-            kidCount={kidCount}
-            desc={kidDescs[activeKid] ?? { tops: [], bottoms: [], colors: [] }}
-            onChange={d => updateKidDesc(activeKid, d)}
-          />
-        </div>
-
-        {kidCount > 1 && activeKid < kidCount - 1 && (
-          <button onClick={() => setActiveKid(activeKid + 1)}
-            style={{ width: '100%', padding: '13px', borderRadius: 14, border: 'none', background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14, transition: 'all 0.12s' }}>
-            Next → Kid {activeKid + 2}
-          </button>
-        )}
-
-        {kidCount > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
-            {kidDescs.map((desc, i) => {
-              const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
-              return (
-                <div key={i} style={{ width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4, background: hasDesc ? kidColors[i % kidColors.length] : i === activeKid ? '#7B61FF' : '#282a32', transition: 'all 0.2s' }} />
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── SUMMARY PREVIEW ───────────────────────────────────── */}
+        {/* Summary preview (common for both modes) */}
         <div style={{
-          borderRadius: 20, padding: '16px 18px', marginBottom: 14,
+          borderRadius: 20, padding: '16px 18px', marginBottom: 16,
           background: selectedCat ? selectedCat.bg : '#1d1f28',
           border: `1px solid ${selectedCat ? selectedCat.border : 'transparent'}`,
           display: 'flex', gap: 16, alignItems: 'center', transition: 'all 0.2s',
@@ -3899,18 +4097,27 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
               <>
                 <p style={{ fontSize: 28, fontWeight: 800, color: '#00C853', margin: 0, lineHeight: 1 }}>{exitLabel}</p>
                 <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
-                  {customHourMode
-                    ? `${customHourInput || 0}h custom`
-                    : `${hours}h`}
-                  {bonusMins > 0 && ` +${bonusMins}m`}
-                  {fineTune !== 0 && <span style={{ color: fineTune > 0 ? '#34d399' : '#f87171' }}> {fineTune > 0 ? '+' : ''}{fineTune}m</span>}
+                  {checkInMode === 'standard' && !specialCategory && (
+                    <>
+                      {customHourMode ? `${customHourInput || 0}h custom` : `${hours}h`}
+                      {bonusMins > 0 && ` +${bonusMins}m`}
+                      {fineTune !== 0 && <span style={{ color: fineTune > 0 ? '#34d399' : '#f87171' }}> {fineTune > 0 ? '+' : ''}{fineTune}m</span>}
+                    </>
+                  )}
+                  {checkInMode === 'package' && `${hours}h${bonusMins > 0 ? ` +${bonusMins}m` : ''}`}
                   {' '}· {kidCount} client{kidCount !== 1 ? 's' : ''}
+                  {checkInMode === 'package' && selectedPackage && (
+                    <span style={{ marginLeft: 6, color: '#a78bfa' }}>
+                      · {PACKAGE_OPTIONS.find(p => p.id === selectedPackage)?.icon}{' '}
+                      {selectedPackage === 'other' ? (customPackageName || 'Custom') : PACKAGE_OPTIONS.find(p => p.id === selectedPackage)?.label}
+                    </span>
+                  )}
                 </p>
               </>
             )}
           </div>
           <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Check-in</p>
+            <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Check‑in</p>
             <p style={{ fontSize: 22, fontWeight: 700, color: '#e1e1ed', margin: 0 }}>
               {new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}
             </p>
@@ -3925,29 +4132,31 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
         )}
       </div>
 
-      {/* ── Fixed CTA ─────────────────────────────────────────── */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 28px', background: 'linear-gradient(to top, #0c0e16 65%, transparent)', zIndex: 50 }}>
+      {/* Fixed CTA */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #0c0e16 60%, transparent)', zIndex: 50 }}>
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
           <button onClick={handleSubmit} disabled={saving}
             style={{
-              width: '100%', padding: '20px', border: 'none', borderRadius: 20,
-              cursor: saving ? 'not-allowed' : 'pointer',
+              width: '100%', padding: '20px', border: 'none', borderRadius: 20, cursor: saving ? 'not-allowed' : 'pointer',
               background: saving ? '#282a32'
-                : selectedCat ? selectedCat.gradient
-                  : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)',
+                : checkInMode === 'package'
+                  ? 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)'
+                  : (selectedCat ? selectedCat.gradient : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)'),
               color: saving ? '#6b7280' : '#fff',
               fontSize: 17, fontWeight: 800, letterSpacing: '0.04em',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               transition: 'all 0.15s',
-              boxShadow: saving ? 'none' : selectedCat ? `0 6px 24px ${selectedCat.color}44` : '0 6px 24px rgba(0,200,83,0.3)',
+              boxShadow: saving ? 'none' : (selectedCat ? `0 6px 24px ${selectedCat.color}44` : '0 6px 24px rgba(0,200,83,0.3)'),
             }}
             onMouseDown={e => { if (!saving) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
             onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
           >
-            {saving ? 'Saving…' : selectedCat ? (
+            {saving ? 'Saving…' : checkInMode === 'package' ? (
+              <><Package size={20} /> CONFIRM PACKAGE · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
+            ) : selectedCat ? (
               <>{selectedCat.icon} {selectedCat.label.toUpperCase()} · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
             ) : (
-              <><CheckCircle size={22} /> CONFIRM CHECK-IN · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
+              <><CheckCircle size={22} /> CONFIRM CHECK‑IN · {kidCount} Client{kidCount !== 1 ? 's' : ''}</>
             )}
           </button>
         </div>
@@ -3955,7 +4164,6 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
     </div>
   );
 }
-
 // ─── Session card ─────────────────────────────────────────────────────────────
 function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   session: JumperSession;

@@ -3879,8 +3879,17 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
           const clothing = [...tops, ...bottoms];
           return [...colors, ...clothing].join(', ') || 'No description';
         } else {
-          const described = descs.filter(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0).length;
-          return `${described}/${descs.length} kids described`;
+          return descs.map((d, i) => {
+            const gender = d.gender === 'male' ? '♂' : d.gender === 'female' ? '♀' : '';
+            const age = d.isAdult ? 'Adult' : 'Kid';
+            const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
+            const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
+            const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
+            const clothing = [...tops, ...bottoms];
+            const parts = [gender, age, ...colors, ...clothing].filter(Boolean);
+            const desc = parts.length > 0 ? parts.join(', ') : 'No description';
+            return `Kid ${i + 1}: ${desc}`;
+          }).join('  ·  ');
         }
       } catch {
         return 'Invalid description data';
@@ -4054,8 +4063,17 @@ const getAlertDescription = (session: JumperSession): string => {
         const parts = [genderLabel, ageLabel, ...colors, ...clothing].filter(Boolean);
         return parts.join(', ');
       } else {
-        const described = descs.filter(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0).length;
-        return `${described}/${descs.length} kids described`;
+        return descs.map((d, i) => {
+          const gender = d.gender === 'male' ? '♂' : d.gender === 'female' ? '♀' : '';
+          const age = d.isAdult ? 'Adult' : 'Kid';
+          const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
+          const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
+          const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
+          const clothing = [...tops, ...bottoms];
+          const parts = [gender, age, ...colors, ...clothing].filter(Boolean);
+          const desc = parts.length > 0 ? parts.join(', ') : 'No description';
+          return `Kid ${i + 1}: ${desc}`;
+        }).join('  ·  ');
       }
     } catch { return ''; }
   }
@@ -4413,13 +4431,18 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                   style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}
                 >
                   <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: '0 0 2px' }}>
                       Group of {s.kid_count} is overdue!
                     </p>
-                    <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>
+                    <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 2px' }}>
                       Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
                     </p>
+                    {getAlertDescription(s) && (
+                      <p style={{ fontSize: 12, color: '#fca5a5', margin: 0, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {getAlertDescription(s)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -4430,13 +4453,18 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                   style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}
                 >
                   <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: 0 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: '0 0 2px' }}>
                       Group of {s.kid_count} leaving soon
                     </p>
-                    <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>
+                    <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 2px' }}>
                       Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
                     </p>
+                    {getAlertDescription(s) && (
+                      <p style={{ fontSize: 12, color: '#fcd34d', margin: 0, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {getAlertDescription(s)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -4516,63 +4544,74 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               </div>
             )}
 
-            {/* Quick filter chips — Gender & Age row */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Gender:</span>
-              {([{ id: 'male', label: '♂ Male', bg: 'rgba(59,130,246,0.18)', activeBg: 'rgba(59,130,246,0.3)', color: '#60a5fa', border: 'rgba(59,130,246,0.4)' }, { id: 'female', label: '♀ Female', bg: 'rgba(236,72,153,0.18)', activeBg: 'rgba(236,72,153,0.3)', color: '#f472b6', border: 'rgba(236,72,153,0.4)' }]).map(g => (
-                <button key={g.id} onClick={() => setGenderFilter(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])}
-                  style={{
-                    padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
-                    background: genderFilter.includes(g.id) ? g.activeBg : '#1c1f29',
-                    color: genderFilter.includes(g.id) ? g.color : '#6b7280',
-                    border: genderFilter.includes(g.id) ? `1px solid ${g.border}` : '1px solid transparent',
-                    cursor: 'pointer', transition: 'all 0.12s',
-                  }}>
-                  {g.label}
-                </button>
-              ))}
-              <span style={{ color: '#2e3140', fontSize: 13, marginLeft: 4 }}>|</span>
-              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginLeft: 4 }}>Age:</span>
-              {([{ id: 'kid', label: '🧒 Kid', activeColor: '#34d399', activeBg: 'rgba(16,185,129,0.18)', activeBorder: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', activeColor: '#fbbf24', activeBg: 'rgba(245,158,11,0.18)', activeBorder: 'rgba(245,158,11,0.3)' }]).map(a => (
-                <button key={a.id} onClick={() => setAgeFilter(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])}
-                  style={{
-                    padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
-                    background: ageFilter.includes(a.id) ? a.activeBg : '#1c1f29',
-                    color: ageFilter.includes(a.id) ? a.activeColor : '#6b7280',
-                    border: ageFilter.includes(a.id) ? `1px solid ${a.activeBorder}` : '1px solid transparent',
-                    cursor: 'pointer', transition: 'all 0.12s',
-                  }}>
-                  {a.label}
-                </button>
-              ))}
-            </div>
 
-            {/* Quick filter chips — Colors & Clothing row */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Color:</span>
-              {COLOR_OPTIONS.slice(0, 8).map(c => (
-                <button key={c.id} onClick={() => setColorFilter(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
-                  style={{
-                    padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
-                    background: colorFilter.includes(c.id) ? c.hex : '#1c1f29',
-                    color: colorFilter.includes(c.id) ? '#fff' : '#9ca3af',
-                    border: 'none', cursor: 'pointer', transition: 'all 0.12s',
-                  }}>
-                  {c.label}
-                </button>
-              ))}
-              <span style={{ color: '#2e3140', fontSize: 13 }}>|</span>
-              {[...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].slice(0, 6).map(opt => (
-                <button key={opt.id} onClick={() => setClothingFilter(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
-                  style={{
-                    padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
-                    background: clothingFilter.includes(opt.id) ? '#7B61FF' : '#1c1f29',
-                    color: clothingFilter.includes(opt.id) ? '#fff' : '#9ca3af',
-                    border: 'none', cursor: 'pointer', transition: 'all 0.12s',
-                  }}>
-                  {opt.icon} {opt.label}
-                </button>
-              ))}
+
+            {/* Filter chip container with background */}
+            <div style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 16,
+              padding: '12px 16px',
+              marginTop: 8,
+            }}>
+              {/* Quick filter chips — Gender & Age row */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Filter By: </span>
+                {([{ id: 'male', label: '♂ Male', bg: 'rgba(59,130,246,0.18)', activeBg: 'rgba(59,130,246,0.3)', color: '#60a5fa', border: 'rgba(59,130,246,0.4)' }, { id: 'female', label: '♀ Female', bg: 'rgba(236,72,153,0.18)', activeBg: 'rgba(236,72,153,0.3)', color: '#f472b6', border: 'rgba(236,72,153,0.4)' }]).map(g => (
+                  <button key={g.id} onClick={() => setGenderFilter(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])}
+                    style={{
+                      padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
+                      background: genderFilter.includes(g.id) ? g.activeBg : '#1c1f29',
+                      color: genderFilter.includes(g.id) ? g.color : '#6b7280',
+                      border: genderFilter.includes(g.id) ? `1px solid ${g.border}` : '1px solid transparent',
+                      cursor: 'pointer', transition: 'all 0.12s',
+                    }}>
+                    {g.label}
+                  </button>
+                ))}
+                <span style={{ color: '#2e3140', fontSize: 13, marginLeft: 4 }}>|</span>
+
+                {([{ id: 'kid', label: '🧒 Kid', activeColor: '#34d399', activeBg: 'rgba(16,185,129,0.18)', activeBorder: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', activeColor: '#fbbf24', activeBg: 'rgba(245,158,11,0.18)', activeBorder: 'rgba(245,158,11,0.3)' }]).map(a => (
+                  <button key={a.id} onClick={() => setAgeFilter(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])}
+                    style={{
+                      padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
+                      background: ageFilter.includes(a.id) ? a.activeBg : '#1c1f29',
+                      color: ageFilter.includes(a.id) ? a.activeColor : '#6b7280',
+                      border: ageFilter.includes(a.id) ? `1px solid ${a.activeBorder}` : '1px solid transparent',
+                      cursor: 'pointer', transition: 'all 0.12s',
+                    }}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Quick filter chips — Colors & Clothing row */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
+
+                {COLOR_OPTIONS.slice(0, 8).map(c => (
+                  <button key={c.id} onClick={() => setColorFilter(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                    style={{
+                      padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                      background: colorFilter.includes(c.id) ? c.hex : '#1c1f29',
+                      color: colorFilter.includes(c.id) ? '#fff' : '#9ca3af',
+                      border: 'none', cursor: 'pointer', transition: 'all 0.12s',
+                    }}>
+                    {c.label}
+                  </button>
+                ))}
+                <span style={{ color: '#2e3140', fontSize: 13 }}>|</span>
+                {[...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].slice(0, 6).map(opt => (
+                  <button key={opt.id} onClick={() => setClothingFilter(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
+                    style={{
+                      padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                      background: clothingFilter.includes(opt.id) ? '#7B61FF' : '#1c1f29',
+                      color: clothingFilter.includes(opt.id) ? '#fff' : '#9ca3af',
+                      border: 'none', cursor: 'pointer', transition: 'all 0.12s',
+                    }}>
+                    {opt.icon} {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

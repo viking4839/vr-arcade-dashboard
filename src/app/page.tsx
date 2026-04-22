@@ -3089,6 +3089,8 @@ interface KidDesc {
   bottoms: string[];
   colors: string[];
   gender?: 'male' | 'female' | 'other';
+  ageGroup?: 'kid' | 'teen' | 'adult';
+  /** @deprecated use ageGroup instead; kept for backward-compat with saved JSON */
   isAdult?: boolean;
 }
 
@@ -3129,6 +3131,21 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
+/** Resolve age group label from a KidDesc, handling both new ageGroup and legacy isAdult */
+function ageGroupLabel(d: KidDesc): string {
+  if (d.ageGroup === 'teen') return 'Teen';
+  if (d.ageGroup === 'adult' || d.isAdult === true) return 'Adult';
+  if (d.ageGroup === 'kid' || d.isAdult === false) return 'Kid';
+  return '';
+}
+
+/** Emoji for age group */
+function ageGroupIcon(d: KidDesc): string {
+  if (d.ageGroup === 'teen') return '🧑';
+  if (d.ageGroup === 'adult' || d.isAdult === true) return '👤';
+  return '🧒';
+}
+
 
 
 // ─── Timer display (live countdown) ──────────────────────────────────────────
@@ -3164,18 +3181,26 @@ function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
 // ─── Clothing options ───────────────────────────────────────────────────────
 const TOP_WEAR_OPTIONS = [
   { id: 'tshirt', label: 'T-Shirt', icon: '👕' },
+  { id: 'polo', label: 'Polo Shirt', icon: '👔' },
+  { id: 'jersey', label: 'Jersey', icon: '⚽' },
+  { id: 'striped_shirt', label: 'Striped Shirt', icon: '👕' },
   { id: 'sweater', label: 'Sweater', icon: '🧥' },
   { id: 'hoodie', label: 'Hoodie', icon: '🧤' },
   { id: 'jacket', label: 'Jacket', icon: '🧣' },
   { id: 'vest', label: 'Vest', icon: '🎽' },
   { id: 'blouse', label: 'Blouse', icon: '👚' },
+  { id: 'hijab', label: 'Hijab', icon: '🧕' },
+  { id: 'tank_top', label: 'Tank Top', icon: '🩱' },
 ];
 const BOTTOM_WEAR_OPTIONS = [
   { id: 'shorts', label: 'Shorts', icon: '🩳' },
+  { id: 'pocketed_shorts', label: 'Pocketed Shorts', icon: '🩳' },
   { id: 'trousers', label: 'Trousers', icon: '👖' },
-  { id: 'skirt', label: 'Skirt/Dress', icon: '👗' },
-  { id: 'leggings', label: 'Leggings', icon: '🧦' },
   { id: 'jeans', label: 'Jeans', icon: '👖' },
+  { id: 'track_pants', label: 'Track Pants', icon: '🏃' },
+  { id: 'leggings', label: 'Leggings', icon: '🧦' },
+  { id: 'skirt', label: 'Skirt/Dress', icon: '👗' },
+  { id: 'palazzos', label: 'Palazzos', icon: '👒' },
 ];
 const COLOR_OPTIONS = [
   { id: 'red', label: 'Red', hex: '#ef4444' },
@@ -3190,6 +3215,14 @@ const COLOR_OPTIONS = [
   { id: 'brown', label: 'Brown', hex: '#92400e' },
   { id: 'grey', label: 'Grey', hex: '#6b7280' },
   { id: 'navy', label: 'Navy', hex: '#1e3a5f' },
+  { id: 'maroon', label: 'Maroon', hex: '#7f1d1d' },
+  { id: 'cream', label: 'Cream', hex: '#fef3c7' },
+  { id: 'beige', label: 'Beige', hex: '#d4b896' },
+  { id: 'teal', label: 'Teal', hex: '#0d9488' },
+  { id: 'lime', label: 'Lime', hex: '#84cc16' },
+  { id: 'turquoise', label: 'Turquoise', hex: '#06b6d4' },
+  { id: 'olive', label: 'Olive', hex: '#65a30d' },
+  { id: 'gold', label: 'Gold', hex: '#f59e0b' },
 ];
 
 // ─── Stepper button ───────────────────────────────────────────────────────────
@@ -3339,23 +3372,32 @@ function KidDescPanel({ kidIndex, kidCount, desc, onChange }: {
         ))}
       </div>
 
-      {/* Adult / Kid toggle */}
+      {/* Adult / Kid / Teen toggle */}
       <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 16, marginBottom: 10 }}>Age Group</p>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => onChange({ ...desc, isAdult: false })}
+        <button onClick={() => onChange({ ...desc, ageGroup: 'kid', isAdult: false })}
           style={{
             flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
-            background: desc.isAdult === false ? '#7B61FF' : '#282a32',
-            color: desc.isAdult === false ? '#fff' : '#c9c4d8',
+            background: desc.ageGroup === 'kid' || (desc.ageGroup === undefined && desc.isAdult === false) ? '#7B61FF' : '#282a32',
+            color: desc.ageGroup === 'kid' || (desc.ageGroup === undefined && desc.isAdult === false) ? '#fff' : '#c9c4d8',
             fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
           }}>
           🧒 Kid
         </button>
-        <button onClick={() => onChange({ ...desc, isAdult: true })}
+        <button onClick={() => onChange({ ...desc, ageGroup: 'teen', isAdult: false })}
           style={{
             flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
-            background: desc.isAdult === true ? '#7B61FF' : '#282a32',
-            color: desc.isAdult === true ? '#fff' : '#c9c4d8',
+            background: desc.ageGroup === 'teen' ? '#7B61FF' : '#282a32',
+            color: desc.ageGroup === 'teen' ? '#fff' : '#c9c4d8',
+            fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
+          }}>
+          🧑 Teen
+        </button>
+        <button onClick={() => onChange({ ...desc, ageGroup: 'adult', isAdult: true })}
+          style={{
+            flex: 1, padding: '8px 12px', borderRadius: 12, border: 'none', cursor: 'pointer',
+            background: desc.ageGroup === 'adult' || (desc.ageGroup === undefined && desc.isAdult === true) ? '#7B61FF' : '#282a32',
+            color: desc.ageGroup === 'adult' || (desc.ageGroup === undefined && desc.isAdult === true) ? '#fff' : '#c9c4d8',
             fontSize: 13, fontWeight: 600, transition: 'all 0.12s',
           }}>
           👤 Adult
@@ -4324,8 +4366,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                             {desc.gender === 'male' ? '♂' : '♀'}
                           </span>
                         )}
-                        {desc.isAdult !== undefined && (
-                          <span style={{ fontSize: 11 }}>{desc.isAdult ? '👤' : '🧒'}</span>
+                        {(desc.ageGroup !== undefined || desc.isAdult !== undefined) && (
+                          <span style={{ fontSize: 11 }}>{ageGroupIcon(desc)}</span>
                         )}
                         {hasDesc && !isActive && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00C853', marginLeft: 2 }} />}
                         {desc.colors.length > 0 && (
@@ -4470,7 +4512,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 <span style={{ fontSize: 32 }}>{selectedCat.icon}</span>
                 <div>
                   <p style={{ fontSize: 20, fontWeight: 800, color: selectedCat.color, margin: 0, lineHeight: 1 }}>All Day</p>
-                  <p style={{ fontSize: 12, color: '#6b7280', margin: '3px 0 0' }}>Until close · {exitLabel}</p>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: '3px 0 0' }}>Until close · </p>
                 </div>
               </div>
             ) : (
@@ -4790,15 +4832,15 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
                   {kidDescs[0].gender === 'male' ? '♂ Male' : '♀ Female'}
                 </span>
               )}
-              {kidDescs[0].isAdult !== undefined && (
+              {(kidDescs[0].ageGroup !== undefined || kidDescs[0].isAdult !== undefined) && (
                 <span style={{
                   fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                  background: kidDescs[0].isAdult ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.13)',
-                  color: kidDescs[0].isAdult ? '#fbbf24' : '#34d399',
-                  border: `1px solid ${kidDescs[0].isAdult ? 'rgba(245,158,11,0.28)' : 'rgba(16,185,129,0.25)'}`,
+                  background: (kidDescs[0].ageGroup === 'adult' || kidDescs[0].isAdult === true) ? 'rgba(245,158,11,0.15)' : kidDescs[0].ageGroup === 'teen' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.13)',
+                  color: (kidDescs[0].ageGroup === 'adult' || kidDescs[0].isAdult === true) ? '#fbbf24' : kidDescs[0].ageGroup === 'teen' ? '#a5b4fc' : '#34d399',
+                  border: `1px solid ${(kidDescs[0].ageGroup === 'adult' || kidDescs[0].isAdult === true) ? 'rgba(245,158,11,0.28)' : kidDescs[0].ageGroup === 'teen' ? 'rgba(99,102,241,0.28)' : 'rgba(16,185,129,0.25)'}`,
                   letterSpacing: '0.04em', whiteSpace: 'nowrap',
                 }}>
-                  {kidDescs[0].isAdult ? '👤 Adult' : '🧒 Kid'}
+                  {ageGroupIcon(kidDescs[0])} {ageGroupLabel(kidDescs[0]) || 'Kid'}
                 </span>
               )}
               {kidDescs[0].colors.map(cid => {
@@ -4829,9 +4871,9 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
                         {desc.gender === 'male' ? '♂' : '♀'}
                       </span>
                     )}
-                    {desc.isAdult !== undefined && (
-                      <span style={{ fontSize: 10, color: desc.isAdult ? '#fbbf24' : '#34d399' }}>
-                        {desc.isAdult ? '👤' : '🧒'}
+                    {(desc.ageGroup !== undefined || desc.isAdult !== undefined) && (
+                      <span style={{ fontSize: 10, color: (desc.ageGroup === 'adult' || desc.isAdult === true) ? '#fbbf24' : desc.ageGroup === 'teen' ? '#a5b4fc' : '#34d399' }}>
+                        {ageGroupIcon(desc)}
                       </span>
                     )}
                     {hasKidDesc ? (
@@ -4885,15 +4927,15 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
                         {desc.gender === 'male' ? '♂ Male' : '♀ Female'}
                       </span>
                     )}
-                    {desc.isAdult !== undefined && (
+                    {(desc.ageGroup !== undefined || desc.isAdult !== undefined) && (
                       <span style={{
                         fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                        background: desc.isAdult ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.13)',
-                        color: desc.isAdult ? '#fbbf24' : '#34d399',
-                        border: `1px solid ${desc.isAdult ? 'rgba(245,158,11,0.28)' : 'rgba(16,185,129,0.25)'}`,
+                        background: (desc.ageGroup === 'adult' || desc.isAdult === true) ? 'rgba(245,158,11,0.15)' : desc.ageGroup === 'teen' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.13)',
+                        color: (desc.ageGroup === 'adult' || desc.isAdult === true) ? '#fbbf24' : desc.ageGroup === 'teen' ? '#a5b4fc' : '#34d399',
+                        border: `1px solid ${(desc.ageGroup === 'adult' || desc.isAdult === true) ? 'rgba(245,158,11,0.28)' : desc.ageGroup === 'teen' ? 'rgba(99,102,241,0.28)' : 'rgba(16,185,129,0.25)'}`,
                         letterSpacing: '0.04em',
                       }}>
-                        {desc.isAdult ? '👤 Adult' : '🧒 Kid'}
+                        {ageGroupIcon(desc)} {ageGroupLabel(desc) || 'Kid'}
                       </span>
                     )}
                   </div>
@@ -4903,7 +4945,7 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
                       return c ? <div key={cid} style={{ width: 18, height: 18, borderRadius: '50%', background: c.hex, outline: '1.5px solid rgba(255,255,255,0.12)', outlineOffset: 1, flexShrink: 0 }} title={c.label} /> : null;
                     }) : <span style={{ fontSize: 12, color: '#4a4d5e' }}>No colors</span>}
                     {clothing.length > 0 && <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>{clothing.join(' · ')}</span>}
-                    {clothing.length === 0 && desc.colors.length === 0 && !desc.gender && desc.isAdult === undefined && (
+                    {clothing.length === 0 && desc.colors.length === 0 && !desc.gender && desc.ageGroup === undefined && desc.isAdult === undefined && (
                       <span style={{ fontSize: 12, color: '#4a4d5e', fontStyle: 'italic' }}>No description added</span>
                     )}
                   </div>
@@ -5033,7 +5075,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
             const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
             const clothing = [...tops, ...bottoms];
             const gender = d.gender === 'male' ? 'Male' : d.gender === 'female' ? 'Female' : '';
-            const age = d.isAdult ? 'Adult' : 'Kid';
+            const age = ageGroupLabel(d);
 
             // Combine the traits into a readable string
             const parts = [gender, age, ...colors, ...clothing].filter(Boolean);
@@ -5098,7 +5140,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
         } else {
           return descs.map((d, i) => {
             const gender = d.gender === 'male' ? '♂' : d.gender === 'female' ? '♀' : '';
-            const age = d.isAdult ? 'Adult' : 'Kid';
+            const age = ageGroupLabel(d);
             const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
             const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
             const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
@@ -5276,13 +5318,13 @@ const getAlertDescription = (session: JumperSession): string => {
         const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
         const clothing = [...tops, ...bottoms];
         const genderLabel = d.gender === 'male' ? 'Male' : d.gender === 'female' ? 'Female' : '';
-        const ageLabel = d.isAdult ? 'Adult' : 'Kid';
+        const ageLabel = ageGroupLabel(d);
         const parts = [genderLabel, ageLabel, ...colors, ...clothing].filter(Boolean);
         return parts.join(', ');
       } else {
         return descs.map((d, i) => {
           const gender = d.gender === 'male' ? '♂' : d.gender === 'female' ? '♀' : '';
-          const age = d.isAdult ? 'Adult' : 'Kid';
+          const age = ageGroupLabel(d);
           const colors = d.colors.map(c => COLOR_OPTIONS.find(opt => opt.id === c)?.label).filter(Boolean);
           const tops = d.tops.map(t => TOP_WEAR_OPTIONS.find(opt => opt.id === t)?.label).filter(Boolean);
           const bottoms = d.bottoms.map(b => BOTTOM_WEAR_OPTIONS.find(opt => opt.id === b)?.label).filter(Boolean);
@@ -5386,7 +5428,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [colorFilter, setColorFilter] = useState<string[]>([]);
   const [clothingFilter, setClothingFilter] = useState<string[]>([]);
   const [genderFilter, setGenderFilter] = useState<string[]>([]);   // 'male' | 'female'
-  const [ageFilter, setAgeFilter] = useState<string[]>([]);         // 'adult' | 'kid'
+  const [ageFilter, setAgeFilter] = useState<string[]>([]);         // 'adult' | 'teen' | 'kid'
   const [filterOpen, setFilterOpen] = useState(false);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -5546,15 +5588,16 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       });
     }
 
-    // Age filter (adult / kid)
+    // Age filter (adult / teen / kid)
     if (ageFilter.length > 0) {
       filtered = filtered.filter(s => {
         if (s.kid_descs) {
           try {
             const descs: KidDesc[] = JSON.parse(s.kid_descs);
             return descs.some(d => {
-              if (ageFilter.includes('adult') && d.isAdult === true) return true;
-              if (ageFilter.includes('kid') && d.isAdult !== true) return true;
+              if (ageFilter.includes('adult') && (d.ageGroup === 'adult' || (d.ageGroup === undefined && d.isAdult === true))) return true;
+              if (ageFilter.includes('teen') && d.ageGroup === 'teen') return true;
+              if (ageFilter.includes('kid') && (d.ageGroup === 'kid' || (d.ageGroup === undefined && d.isAdult !== true))) return true;
               return false;
             });
           } catch { return false; }
@@ -5758,7 +5801,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                     {hasActive && !filterOpen && (
                       <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginLeft: 4 }}>
                         {genderFilter.map(g => <span key={g} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: g === 'male' ? 'rgba(59,130,246,0.25)' : 'rgba(236,72,153,0.25)', color: g === 'male' ? '#60a5fa' : '#f472b6' }}>{g === 'male' ? '♂' : '♀'}</span>)}
-                        {ageFilter.map(a => <span key={a} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: a === 'adult' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.15)', color: a === 'adult' ? '#fbbf24' : '#34d399' }}>{a === 'adult' ? '👤' : '🧒'}</span>)}
+                        {ageFilter.map(a => <span key={a} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: a === 'adult' ? 'rgba(245,158,11,0.2)' : a === 'teen' ? 'rgba(99,102,241,0.18)' : 'rgba(16,185,129,0.15)', color: a === 'adult' ? '#fbbf24' : a === 'teen' ? '#a5b4fc' : '#34d399' }}>{a === 'adult' ? '👤' : a === 'teen' ? '🧑' : '🧒'}</span>)}
                         {colorFilter.map(cid => { const c = COLOR_OPTIONS.find(x => x.id === cid); return c ? <span key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, display: 'inline-block' }} /> : null; })}
                         {clothingFilter.map(cid => { const o = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(x => x.id === cid); return o ? <span key={cid} style={{ fontSize: 11 }}>{o.icon}</span> : null; })}
                       </div>
@@ -5773,7 +5816,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                     {hasActive && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12, alignItems: 'center' }}>
                         {genderFilter.map(g => <button key={g} onClick={() => setGenderFilter(p => p.filter(x => x !== g))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: g === 'male' ? 'rgba(59,130,246,0.2)' : 'rgba(236,72,153,0.2)', color: g === 'male' ? '#60a5fa' : '#f472b6', border: 'none', cursor: 'pointer' }}>{g === 'male' ? '♂ Male' : '♀ Female'} ✕</button>)}
-                        {ageFilter.map(a => <button key={a} onClick={() => setAgeFilter(p => p.filter(x => x !== a))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: a === 'adult' ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.14)', color: a === 'adult' ? '#fbbf24' : '#34d399', border: 'none', cursor: 'pointer' }}>{a === 'adult' ? '👤 Adult' : '🧒 Kid'} ✕</button>)}
+                        {ageFilter.map(a => <button key={a} onClick={() => setAgeFilter(p => p.filter(x => x !== a))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: a === 'adult' ? 'rgba(245,158,11,0.18)' : a === 'teen' ? 'rgba(99,102,241,0.16)' : 'rgba(16,185,129,0.14)', color: a === 'adult' ? '#fbbf24' : a === 'teen' ? '#a5b4fc' : '#34d399', border: 'none', cursor: 'pointer' }}>{a === 'adult' ? '👤 Adult' : a === 'teen' ? '🧑 Teen' : '🧒 Kid'} ✕</button>)}
                         {colorFilter.map(cid => { const c = COLOR_OPTIONS.find(x => x.id === cid); return c ? <button key={cid} onClick={() => setColorFilter(p => p.filter(x => x !== cid))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: c.hex, color: '#fff', border: 'none', cursor: 'pointer' }}>{c.label} ✕</button> : null; })}
                         {clothingFilter.map(cid => { const o = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(x => x.id === cid); return o ? <button key={cid} onClick={() => setClothingFilter(p => p.filter(x => x !== cid))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: '#7c6fff', color: '#fff', border: 'none', cursor: 'pointer' }}>{o.icon} {o.label} ✕</button> : null; })}
                         <button onClick={() => { setColorFilter([]); setClothingFilter([]); setGenderFilter([]); setAgeFilter([]); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#ff4f4f', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Clear all</button>
@@ -5789,7 +5832,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                         </button>
                       ))}
                       <span style={{ width: 1, background: '#2a2c38', alignSelf: 'stretch', margin: '0 2px' }} />
-                      {([{ id: 'kid', label: '🧒 Kid', ac: '#34d399', ab: 'rgba(16,185,129,0.18)', abr: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', ac: '#fbbf24', ab: 'rgba(245,158,11,0.18)', abr: 'rgba(245,158,11,0.3)' }] as const).map(a => (
+                      {([{ id: 'kid', label: '🧒 Kid', ac: '#34d399', ab: 'rgba(16,185,129,0.18)', abr: 'rgba(16,185,129,0.3)' }, { id: 'teen', label: '🧑 Teen', ac: '#a5b4fc', ab: 'rgba(99,102,241,0.18)', abr: 'rgba(99,102,241,0.3)' }, { id: 'adult', label: '👤 Adult', ac: '#fbbf24', ab: 'rgba(245,158,11,0.18)', abr: 'rgba(245,158,11,0.3)' }] as const).map(a => (
                         <button key={a.id} onClick={() => setAgeFilter(p => p.includes(a.id) ? p.filter(x => x !== a.id) : [...p, a.id])}
                           style={{ padding: '5px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: ageFilter.includes(a.id) ? a.ab : '#1a1c24', color: ageFilter.includes(a.id) ? a.ac : '#4b5263', border: `1px solid ${ageFilter.includes(a.id) ? a.abr : 'transparent'}`, cursor: 'pointer' }}>
                           {a.label}

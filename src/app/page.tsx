@@ -5635,27 +5635,27 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                 <ChevronLeft size={15} /> Home
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                
+
                 <div>
                   <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 900, color: '#eef0f6', margin: 0, lineHeight: 1 }}>Jump Xtreme</h1>
                   <p style={{ fontSize: 10, color: '#4b5263', margin: 0, letterSpacing: '0.04em' }}>{new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}</p>
                 </div>
               </div>
             </div>
-            {/* Live clock + tab switcher */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)', borderRadius: 20, padding: '4px 10px' }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00e676', boxShadow: '0 0 6px #00e676', display: 'inline-block', animation: 'jz-pulse 2s ease-in-out infinite' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#00e676', fontFamily: 'monospace', letterSpacing: '0.5px' }}>{currentTime}</span>
-              </div>
-              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 3, border: '1px solid var(--jz-border)' }}>
-                {(['live', 'records'] as const).map(t => (
-                  <button key={t} onClick={() => setMainTab(t)}
-                    style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: mainTab === t ? '#7c6fff' : 'transparent', color: mainTab === t ? '#fff' : '#4b5263', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
-                    {t === 'live' ? '⬤ Live' : 'Records'}
-                  </button>
-                ))}
-              </div>
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
+              {(['live', 'records'] as const).map(t => (
+                <button key={t} onClick={() => setMainTab(t)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    background: mainTab === t ? '#6366f1' : 'transparent',
+                    color: mainTab === t ? '#fff' : '#6b7280',
+                    transition: 'all 0.15s', whiteSpace: 'nowrap'
+                  }}>
+                  {t === 'live' ? 'Live' : 'Records'}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -5710,20 +5710,32 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
             </div>
           ))}
 
-          {/* ── Active / All Today tab + filter row ────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
-            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 3, border: '1px solid var(--jz-border)' }}>
+          {/* Tab filter (Active/All Today) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            {/* Tabs on the left */}
+            <div style={{ display: 'flex', gap: 10 }}>
               {(['active', 'all'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)}
-                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: tab === t ? '#7c6fff' : 'transparent', color: tab === t ? '#fff' : '#4b5263', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
-                  {t === 'active' ? `Active · ${active.length}` : 'All Today'}
+                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+                  {t === 'active' ? `Active (${active.length})` : 'All Today'}
                 </button>
               ))}
             </div>
-            {/* result count */}
-            {(liveSearch || colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && (
-              <span style={{ fontSize: 11, color: '#4b5263', fontWeight: 600 }}>{displayed.length} result{displayed.length !== 1 ? 's' : ''}</span>
-            )}
+
+            {/* Live clock on the right */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#1c1f29', padding: '6px 14px', borderRadius: 20,
+              border: '1px solid rgba(36, 179, 45)',
+            }}>
+              <Clock size={18} color="#24B32D" />
+              <span style={{
+                fontSize: 16, fontWeight: 700, color: '#24B32D',
+                fontFamily: 'monospace', letterSpacing: '1px',
+              }}>
+                {currentTime}
+              </span>
+            </div>
           </div>
 
           {/* ── Collapsible filter panel ────────────────────────── */}

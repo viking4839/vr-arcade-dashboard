@@ -5387,6 +5387,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [clothingFilter, setClothingFilter] = useState<string[]>([]);
   const [genderFilter, setGenderFilter] = useState<string[]>([]);   // 'male' | 'female'
   const [ageFilter, setAgeFilter] = useState<string[]>([]);         // 'adult' | 'kid'
+  const [filterOpen, setFilterOpen] = useState(false);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   useEffect(() => {
@@ -5583,298 +5584,251 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     <>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root { --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1; }
-        body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
-        @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
-        @keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
-        textarea { font-family: inherit; }
-        input::placeholder, textarea::placeholder { color: #4b5563; }
+        :root {
+          --jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c;
+          --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;
+          --jz-green: #00e676; --jz-amber: #ffb300; --jz-red: #ff4f4f;
+          --jz-purple: #7c6fff;
+        }
+        body { background: var(--jz-bg); color: var(--jz-text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+        @keyframes jz-pulse { 0%,100%{opacity:.4;transform:scale(.85)} 50%{opacity:1;transform:scale(1.15)} }
+        @keyframes jz-in { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes jz-slide-up { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        .jz-alert-overdue { animation: jz-in 0.25s ease both; }
         .session-card-wrap { contain: layout style; transform: translateZ(0); -webkit-transform: translateZ(0); }
         @media (max-width: 480px) { * { transition-duration: 0s !important; } }
-      `}</style>
-      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        textarea { font-family: inherit; }
+        input::placeholder, textarea::placeholder { color: #3a3d4a; }
 
-      {/* Header */}
-      <div style={{ background: '#151820', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button onClick={onBack} title="Back to home" style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '6px 8px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, transition: 'color 0.15s' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#f0f2f8')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
-            >
-              <ChevronLeft size={18} /> Home
-            </button>
-            <div>
-              <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 800, color: '#f0f2f8', margin: 0 }}>Jump Zone</h1>
-              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Trampoline Park · {new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+        /* ── Header ── */
+        .jz-header { background: rgba(8,9,13,0.96); border-bottom: 1px solid var(--jz-border); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
+
+        /* ── Stat card ── */
+        .jz-stat { background: var(--jz-card); border: 1px solid var(--jz-border); border-radius: 16px; padding: 14px 10px; text-align: center; transition: border-color 0.2s; }
+
+        /* ── Tab pill ── */
+        .jz-tab-active { background: var(--jz-purple) !important; color: #fff !important; }
+
+        /* ── Check-in FAB ── */
+        .jz-fab { background: linear-gradient(135deg, #6c63ff 0%, #00e676 100%); border: none; border-radius: 18px; cursor: pointer; font-weight: 800; font-size: 16px; color: #fff; letter-spacing: 0.02em; box-shadow: 0 6px 28px rgba(108,99,255,0.45); transition: transform 0.15s, box-shadow 0.15s; }
+        .jz-fab:hover { transform: translateY(-2px); box-shadow: 0 10px 36px rgba(108,99,255,0.55); }
+        .jz-fab:active { transform: scale(0.97); }
+
+        /* ── Filter toggle ── */
+        .jz-filter-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--jz-card); border: 1px solid var(--jz-border); border-radius: 12px; padding: 9px 14px; cursor: pointer; transition: border-color 0.15s; }
+        .jz-filter-toggle:hover { border-color: rgba(255,255,255,0.13); }
+        .jz-filter-toggle.active { border-color: rgba(124,111,255,0.4); background: rgba(124,111,255,0.07); }
+        .jz-filter-panel { background: #0c0d13; border: 1px solid var(--jz-border); border-top: none; border-radius: 0 0 12px 12px; padding: 14px; animation: jz-slide-up 0.18s ease both; }
+      `}</style>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+      {/* ── Header ────────────────────────────────────────────────── */}
+      <div className="jz-header">
+        <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 16px' }}>
+          {/* Top row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, paddingBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--jz-border)', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#eef0f6')}
+                onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
+              >
+                <ChevronLeft size={15} /> Home
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                
+                <div>
+                  <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 900, color: '#eef0f6', margin: 0, lineHeight: 1 }}>Jump Xtreme</h1>
+                  <p style={{ fontSize: 10, color: '#4b5263', margin: 0, letterSpacing: '0.04em' }}>{new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}</p>
+                </div>
+              </div>
+            </div>
+            {/* Live clock + tab switcher */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)', borderRadius: 20, padding: '4px 10px' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00e676', boxShadow: '0 0 6px #00e676', display: 'inline-block', animation: 'jz-pulse 2s ease-in-out infinite' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#00e676', fontFamily: 'monospace', letterSpacing: '0.5px' }}>{currentTime}</span>
+              </div>
+              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 3, border: '1px solid var(--jz-border)' }}>
+                {(['live', 'records'] as const).map(t => (
+                  <button key={t} onClick={() => setMainTab(t)}
+                    style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: mainTab === t ? '#7c6fff' : 'transparent', color: mainTab === t ? '#fff' : '#4b5263', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
+                    {t === 'live' ? '⬤ Live' : 'Records'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Tab switcher */}
-            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
-              {(['live', 'records'] as const).map(t => (
-                <button key={t} onClick={() => setMainTab(t)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    fontSize: 13, fontWeight: 600,
-                    background: mainTab === t ? '#6366f1' : 'transparent',
-                    color: mainTab === t ? '#fff' : '#6b7280',
-                    transition: 'all 0.15s', whiteSpace: 'nowrap'
-                  }}>
-                  {t === 'live' ? 'Live' : 'Records'}
-                </button>
+
+          {/* Stats row — only in live mode */}
+          {mainTab === 'live' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, paddingBottom: 12 }}>
+              {[
+                { label: 'Groups', value: String(active.length), color: '#00e676', icon: '👥' },
+                { label: 'Jumping', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7c6fff', icon: '🦘' },
+                { label: 'Today', value: String(todayKids), color: '#ffb300', icon: '📅' },
+              ].map(c => (
+                <div key={c.label} className="jz-stat">
+                  <p style={{ fontSize: 9, color: '#4b5263', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 4px', fontWeight: 700 }}>{c.icon} {c.label}</p>
+                  <p style={{ fontSize: 26, fontWeight: 900, color: c.color, lineHeight: 1, fontFamily: ' sans-serif', margin: 0 }}>{c.value}</p>
+                </div>
               ))}
             </div>
-
-
-          </div>
+          )}
         </div>
       </div>
 
       {mainTab === 'records' ? (
         <TrampolineRecords allSessions={sessions} />
       ) : (
-        <div style={{ padding: '0 10px' }}>
-          {/* Stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10, marginTop: 10 }}>
-            {[
-              { label: 'Groups Jumping', value: String(active.length), color: '#00C853' },
-              { label: 'Jumping now', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7B61FF' },
-              { label: 'Clients today', value: String(todayKids), color: '#f59e0b' },
-            ].map(c => (
-              <div key={c.label} style={{ background: '#151820', borderRadius: 14, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
-                <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
-                <p style={{ fontSize: c.label.includes('revenue') ? 17 : 23, fontWeight: 800, color: c.color, fontFamily: ' sans-serif', lineHeight: 1 }}>{c.value}</p>
+        <div style={{ maxWidth: 640, margin: '0 auto', padding: '12px 12px 0' }}>
+
+          {/* ── Alert banners ────────────────────────────────────── */}
+          {overdueSessions.map(s => (
+            <div key={s.id} className="jz-alert-overdue" onClick={() => scrollToSession(s.id)}
+              style={{ cursor: 'pointer', marginBottom: 8, padding: '10px 14px', background: 'rgba(255,79,79,0.1)', border: '1px solid rgba(255,79,79,0.3)', borderLeft: '3px solid #ff4f4f', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}
+            >
+              <AlertTriangle size={16} color="#ff4f4f" style={{ flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#ff4f4f', margin: '0 0 1px' }}>Group of {s.kid_count} is overdue!</p>
+                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Exit was {fmtTime(s.exit_time)} · in at {fmtTime(s.check_in_time)}{getAlertDescription(s) ? ` · ${getAlertDescription(s)}` : ''}
+                </p>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
+          {urgentSessions.map(s => (
+            <div key={s.id} onClick={() => scrollToSession(s.id)}
+              style={{ cursor: 'pointer', marginBottom: 8, padding: '10px 14px', background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.25)', borderLeft: '3px solid #ffb300', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}
+            >
+              <Clock size={16} color="#ffb300" style={{ flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#ffb300', margin: '0 0 1px' }}>Group of {s.kid_count} leaving soon</p>
+                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Exit by {fmtTime(s.exit_time)}{getAlertDescription(s) ? ` · ${getAlertDescription(s)}` : ''}
+                </p>
+              </div>
+            </div>
+          ))}
 
-          {/* Alert badges (only show on live tab) */}
-          {mainTab === 'live' && (
-            <>
-              {overdueSessions.map(s => (
-                <div
-                  key={s.id}
-                  onClick={() => scrollToSession(s.id)}
-                  style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, animation: 'slideDown 0.3s ease' }}
-                >
-                  <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: '0 0 2px' }}>
-                      Group of {s.kid_count} is overdue!
-                    </p>
-                    <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 2px' }}>
-                      Was supposed to exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
-                    </p>
-                    {getAlertDescription(s) && (
-                      <p style={{ fontSize: 12, color: '#fca5a5', margin: 0, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {getAlertDescription(s)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {urgentSessions.map(s => (
-                <div
-                  key={s.id}
-                  onClick={() => scrollToSession(s.id)}
-                  style={{ cursor: 'pointer', marginBottom: 10, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}
-                >
-                  <Clock size={18} color="#f59e0b" style={{ flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', margin: '0 0 2px' }}>
-                      Group of {s.kid_count} leaving soon
-                    </p>
-                    <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 2px' }}>
-                      Exit by {fmtTime(s.exit_time)} · checked in {fmtTime(s.check_in_time)}
-                    </p>
-                    {getAlertDescription(s) && (
-                      <p style={{ fontSize: 12, color: '#fcd34d', margin: 0, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {getAlertDescription(s)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-
-
-          {/* Tab filter (Active/All Today) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            {/* Tabs on the left */}
-            <div style={{ display: 'flex', gap: 10 }}>
+          {/* ── Active / All Today tab + filter row ────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 3, border: '1px solid var(--jz-border)' }}>
               {(['active', 'all'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)}
-                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === t ? '#6366f1' : '#151820', color: tab === t ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
-                  {t === 'active' ? `Active (${active.length})` : 'All Today'}
+                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: tab === t ? '#7c6fff' : 'transparent', color: tab === t ? '#fff' : '#4b5263', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
+                  {t === 'active' ? `Active · ${active.length}` : 'All Today'}
                 </button>
               ))}
             </div>
-
-            {/* Live clock on the right */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: '#1c1f29', padding: '6px 14px', borderRadius: 20,
-              border: '1px solid rgba(36, 179, 45)',
-            }}>
-              <Clock size={18} color="#24B32D" />
-              <span style={{
-                fontSize: 16, fontWeight: 700, color: '#24B32D',
-                fontFamily: 'monospace', letterSpacing: '1px',
-              }}>
-                {currentTime}
-              </span>
-            </div>
-          </div>
-
-          {/* Filter chips */}
-          <div style={{ marginTop: 8, marginBottom: 12, paddingLeft: 10, paddingRight: 10 }}>
-            {/* Active filters (removable tags) */}
-            {(colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {genderFilter.map(g => (
-                    <button key={g} onClick={() => setGenderFilter(prev => prev.filter(x => x !== g))}
-                      style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: g === 'male' ? 'rgba(59,130,246,0.22)' : 'rgba(236,72,153,0.22)', color: g === 'male' ? '#60a5fa' : '#f472b6', border: `1px solid ${g === 'male' ? 'rgba(59,130,246,0.4)' : 'rgba(236,72,153,0.4)'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      {g === 'male' ? '♂ Male' : '♀ Female'} ✕
-                    </button>
-                  ))}
-                  {ageFilter.map(a => (
-                    <button key={a} onClick={() => setAgeFilter(prev => prev.filter(x => x !== a))}
-                      style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: a === 'adult' ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.15)', color: a === 'adult' ? '#fbbf24' : '#34d399', border: `1px solid ${a === 'adult' ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.28)'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      {a === 'adult' ? '👤 Adult' : '🧒 Kid'} ✕
-                    </button>
-                  ))}
-                  {colorFilter.map(cid => {
-                    const c = COLOR_OPTIONS.find(opt => opt.id === cid);
-                    return c ? (
-                      <button key={cid} onClick={() => setColorFilter(prev => prev.filter(x => x !== cid))}
-                        style={{ padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600, background: c.hex, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {c.label} ✕
-                      </button>
-                    ) : null;
-                  })}
-                  {clothingFilter.map(cid => {
-                    const opt = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(o => o.id === cid);
-                    return opt ? (
-                      <button key={cid} onClick={() => setClothingFilter(prev => prev.filter(x => x !== cid))}
-                        style={{ padding: '4px 10px', borderRadius: 16, fontSize: 11, fontWeight: 600, background: '#7B61FF', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {opt.icon} {opt.label} ✕
-                      </button>
-                    ) : null;
-                  })}
-                </div>
-                <button onClick={() => { setColorFilter([]); setClothingFilter([]); setGenderFilter([]); setAgeFilter([]); }}
-                  style={{ fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, marginLeft: 8 }}>
-                  Clear all
-                </button>
-              </div>
+            {/* result count */}
+            {(liveSearch || colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && (
+              <span style={{ fontSize: 11, color: '#4b5263', fontWeight: 600 }}>{displayed.length} result{displayed.length !== 1 ? 's' : ''}</span>
             )}
-
-
-
-            {/* Filter chip container with background */}
-            <div style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 16,
-              padding: '12px 16px',
-              marginTop: 8,
-            }}>
-              {/* Quick filter chips — Gender & Age row */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, minWidth: 60 }}>Filter By: </span>
-                {([{ id: 'male', label: '♂ Male', bg: 'rgba(59,130,246,0.18)', activeBg: 'rgba(59,130,246,0.3)', color: '#60a5fa', border: 'rgba(59,130,246,0.4)' }, { id: 'female', label: '♀ Female', bg: 'rgba(236,72,153,0.18)', activeBg: 'rgba(236,72,153,0.3)', color: '#f472b6', border: 'rgba(236,72,153,0.4)' }]).map(g => (
-                  <button key={g.id} onClick={() => setGenderFilter(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])}
-                    style={{
-                      padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
-                      background: genderFilter.includes(g.id) ? g.activeBg : '#1c1f29',
-                      color: genderFilter.includes(g.id) ? g.color : '#6b7280',
-                      border: genderFilter.includes(g.id) ? `1px solid ${g.border}` : '1px solid transparent',
-                      cursor: 'pointer', transition: 'all 0.12s',
-                    }}>
-                    {g.label}
-                  </button>
-                ))}
-                <span style={{ color: '#2e3140', fontSize: 13, marginLeft: 4 }}>|</span>
-
-                {([{ id: 'kid', label: '🧒 Kid', activeColor: '#34d399', activeBg: 'rgba(16,185,129,0.18)', activeBorder: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', activeColor: '#fbbf24', activeBg: 'rgba(245,158,11,0.18)', activeBorder: 'rgba(245,158,11,0.3)' }]).map(a => (
-                  <button key={a.id} onClick={() => setAgeFilter(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])}
-                    style={{
-                      padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700,
-                      background: ageFilter.includes(a.id) ? a.activeBg : '#1c1f29',
-                      color: ageFilter.includes(a.id) ? a.activeColor : '#6b7280',
-                      border: ageFilter.includes(a.id) ? `1px solid ${a.activeBorder}` : '1px solid transparent',
-                      cursor: 'pointer', transition: 'all 0.12s',
-                    }}>
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Quick filter chips — Colors & Clothing row */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
-
-                {COLOR_OPTIONS.slice(0, 8).map(c => (
-                  <button key={c.id} onClick={() => setColorFilter(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
-                    style={{
-                      padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
-                      background: colorFilter.includes(c.id) ? c.hex : '#1c1f29',
-                      color: colorFilter.includes(c.id) ? '#fff' : '#9ca3af',
-                      border: 'none', cursor: 'pointer', transition: 'all 0.12s',
-                    }}>
-                    {c.label}
-                  </button>
-                ))}
-                <span style={{ color: '#2e3140', fontSize: 13 }}>|</span>
-                {[...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].slice(0, 6).map(opt => (
-                  <button key={opt.id} onClick={() => setClothingFilter(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
-                    style={{
-                      padding: '5px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600,
-                      background: clothingFilter.includes(opt.id) ? '#7B61FF' : '#1c1f29',
-                      color: clothingFilter.includes(opt.id) ? '#fff' : '#9ca3af',
-                      border: 'none', cursor: 'pointer', transition: 'all 0.12s',
-                    }}>
-                    {opt.icon} {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
-          {liveSearch && (
-            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 8, paddingLeft: 10 }}>
-              {displayed.length} result{displayed.length !== 1 ? 's' : ''} for <span style={{ color: '#a5b4fc' }}>"{liveSearch}"</span>
-            </p>
-          )}
-          {(colorFilter.length > 0 || clothingFilter.length > 0 || genderFilter.length > 0 || ageFilter.length > 0) && !liveSearch && (
-            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 8, paddingLeft: 10 }}>
-              {displayed.length} session{displayed.length !== 1 ? 's' : ''} match selected filters
-            </p>
-          )}
+          {/* ── Collapsible filter panel ────────────────────────── */}
+          {(() => {
+            const hasActive = colorFilter.length + clothingFilter.length + genderFilter.length + ageFilter.length > 0;
+            const total = colorFilter.length + clothingFilter.length + genderFilter.length + ageFilter.length;
+            return (
+              <div style={{ marginBottom: 12 }}>
+                <button
+                  className={`jz-filter-toggle${hasActive ? ' active' : ''}`}
+                  onClick={() => setFilterOpen(p => !p)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Filter size={13} color={hasActive ? '#7c6fff' : '#4b5263'} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: hasActive ? '#a89fff' : '#4b5263' }}>Filter by Description</span>
+                    {hasActive && (
+                      <span style={{ fontSize: 10, fontWeight: 800, background: '#7c6fff', color: '#fff', borderRadius: 20, padding: '1px 7px' }}>{total}</span>
+                    )}
+                    {/* preview pills when collapsed */}
+                    {hasActive && !filterOpen && (
+                      <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginLeft: 4 }}>
+                        {genderFilter.map(g => <span key={g} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: g === 'male' ? 'rgba(59,130,246,0.25)' : 'rgba(236,72,153,0.25)', color: g === 'male' ? '#60a5fa' : '#f472b6' }}>{g === 'male' ? '♂' : '♀'}</span>)}
+                        {ageFilter.map(a => <span key={a} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: a === 'adult' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.15)', color: a === 'adult' ? '#fbbf24' : '#34d399' }}>{a === 'adult' ? '👤' : '🧒'}</span>)}
+                        {colorFilter.map(cid => { const c = COLOR_OPTIONS.find(x => x.id === cid); return c ? <span key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, display: 'inline-block' }} /> : null; })}
+                        {clothingFilter.map(cid => { const o = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(x => x.id === cid); return o ? <span key={cid} style={{ fontSize: 11 }}>{o.icon}</span> : null; })}
+                      </div>
+                    )}
+                  </div>
+                  {filterOpen ? <ChevronUp size={14} color="#4b5263" /> : <ChevronDown size={14} color="#4b5263" />}
+                </button>
 
-          {/* Sessions list */}
+                {filterOpen && (
+                  <div className="jz-filter-panel">
+                    {/* Active tag row */}
+                    {hasActive && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12, alignItems: 'center' }}>
+                        {genderFilter.map(g => <button key={g} onClick={() => setGenderFilter(p => p.filter(x => x !== g))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: g === 'male' ? 'rgba(59,130,246,0.2)' : 'rgba(236,72,153,0.2)', color: g === 'male' ? '#60a5fa' : '#f472b6', border: 'none', cursor: 'pointer' }}>{g === 'male' ? '♂ Male' : '♀ Female'} ✕</button>)}
+                        {ageFilter.map(a => <button key={a} onClick={() => setAgeFilter(p => p.filter(x => x !== a))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: a === 'adult' ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.14)', color: a === 'adult' ? '#fbbf24' : '#34d399', border: 'none', cursor: 'pointer' }}>{a === 'adult' ? '👤 Adult' : '🧒 Kid'} ✕</button>)}
+                        {colorFilter.map(cid => { const c = COLOR_OPTIONS.find(x => x.id === cid); return c ? <button key={cid} onClick={() => setColorFilter(p => p.filter(x => x !== cid))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: c.hex, color: '#fff', border: 'none', cursor: 'pointer' }}>{c.label} ✕</button> : null; })}
+                        {clothingFilter.map(cid => { const o = [...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].find(x => x.id === cid); return o ? <button key={cid} onClick={() => setClothingFilter(p => p.filter(x => x !== cid))} style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: '#7c6fff', color: '#fff', border: 'none', cursor: 'pointer' }}>{o.icon} {o.label} ✕</button> : null; })}
+                        <button onClick={() => { setColorFilter([]); setClothingFilter([]); setGenderFilter([]); setAgeFilter([]); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#ff4f4f', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Clear all</button>
+                      </div>
+                    )}
+
+                    <p style={{ fontSize: 9, color: '#3a3d4a', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, margin: '0 0 7px' }}>Gender & Age</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {([{ id: 'male', label: '♂ Male', ac: '#60a5fa', ab: 'rgba(59,130,246,0.2)', abr: 'rgba(59,130,246,0.35)' }, { id: 'female', label: '♀ Female', ac: '#f472b6', ab: 'rgba(236,72,153,0.2)', abr: 'rgba(236,72,153,0.35)' }] as const).map(g => (
+                        <button key={g.id} onClick={() => setGenderFilter(p => p.includes(g.id) ? p.filter(x => x !== g.id) : [...p, g.id])}
+                          style={{ padding: '5px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: genderFilter.includes(g.id) ? g.ab : '#1a1c24', color: genderFilter.includes(g.id) ? g.ac : '#4b5263', border: `1px solid ${genderFilter.includes(g.id) ? g.abr : 'transparent'}`, cursor: 'pointer' }}>
+                          {g.label}
+                        </button>
+                      ))}
+                      <span style={{ width: 1, background: '#2a2c38', alignSelf: 'stretch', margin: '0 2px' }} />
+                      {([{ id: 'kid', label: '🧒 Kid', ac: '#34d399', ab: 'rgba(16,185,129,0.18)', abr: 'rgba(16,185,129,0.3)' }, { id: 'adult', label: '👤 Adult', ac: '#fbbf24', ab: 'rgba(245,158,11,0.18)', abr: 'rgba(245,158,11,0.3)' }] as const).map(a => (
+                        <button key={a.id} onClick={() => setAgeFilter(p => p.includes(a.id) ? p.filter(x => x !== a.id) : [...p, a.id])}
+                          style={{ padding: '5px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: ageFilter.includes(a.id) ? a.ab : '#1a1c24', color: ageFilter.includes(a.id) ? a.ac : '#4b5263', border: `1px solid ${ageFilter.includes(a.id) ? a.abr : 'transparent'}`, cursor: 'pointer' }}>
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p style={{ fontSize: 9, color: '#3a3d4a', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, margin: '0 0 7px' }}>Colour</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {COLOR_OPTIONS.slice(0, 8).map(c => (
+                        <button key={c.id} onClick={() => setColorFilter(p => p.includes(c.id) ? p.filter(x => x !== c.id) : [...p, c.id])}
+                          style={{ padding: '5px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: colorFilter.includes(c.id) ? c.hex : '#1a1c24', color: colorFilter.includes(c.id) ? '#fff' : '#4b5263', border: `2px solid ${colorFilter.includes(c.id) ? c.hex : 'transparent'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.hex, flexShrink: 0 }} />{c.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p style={{ fontSize: 9, color: '#3a3d4a', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, margin: '0 0 7px' }}>Clothing</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {[...TOP_WEAR_OPTIONS, ...BOTTOM_WEAR_OPTIONS].slice(0, 6).map(opt => (
+                        <button key={opt.id} onClick={() => setClothingFilter(p => p.includes(opt.id) ? p.filter(x => x !== opt.id) : [...p, opt.id])}
+                          style={{ padding: '5px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: clothingFilter.includes(opt.id) ? '#7c6fff' : '#1a1c24', color: clothingFilter.includes(opt.id) ? '#fff' : '#4b5263', border: `1px solid ${clothingFilter.includes(opt.id) ? '#7c6fff' : 'transparent'}`, cursor: 'pointer' }}>
+                          {opt.icon} {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── Session list ─────────────────────────────────────── */}
           {loading ? (
-            <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0' }}>Loading…</p>
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#4b5263' }}>
+              <div style={{ fontSize: 32, marginBottom: 12, animation: 'jz-pulse 1.5s ease-in-out infinite' }}>🦘</div>
+              <p style={{ fontSize: 14, fontWeight: 600 }}>Loading sessions…</p>
+            </div>
           ) : displayed.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
-              <Users size={40} color="#374151" style={{ margin: '0 auto 16px' }} />
-              <p style={{ fontSize: 16, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🏃</div>
+              <p style={{ fontSize: 16, fontWeight: 700, color: '#eef0f6', marginBottom: 6 }}>
                 {tab === 'active' ? 'No one jumping right now' : 'No sessions today yet'}
               </p>
-              <p style={{ fontSize: 14 }}>Tap the button below to check in a child</p>
+              <p style={{ fontSize: 13, color: '#4b5263' }}>Tap the button below to check in</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 10, paddingRight: 10, paddingBottom: 100 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 110 }}>
               {displayed.map(s => (
-                <div
-                  key={s.id}
-                  className="session-card-wrap"
-                  ref={el => {
-                    if (el) cardRefs.current.set(s.id, el);
-                    else cardRefs.current.delete(s.id);
-                  }}
+                <div key={s.id} className="session-card-wrap"
+                  ref={el => { if (el) cardRefs.current.set(s.id, el); else cardRefs.current.delete(s.id); }}
                 >
                   <MemoSessionCard
                     session={s}
@@ -5890,14 +5844,12 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
-      {/* Big check-in button — fixed at bottom */}
+      {/* ── Check-in FAB ──────────────────────────────────────────── */}
       {mainTab === 'live' && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, #0d0f14 70%, transparent)', zIndex: 40 }}>
-          <div style={{ maxWidth: 600, margin: '0 auto' }}>
-            <button onClick={() => setView('checkin')}
-              style={{ width: '100%', padding: '18px', background: '#6366f1', border: 'none', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#4f46e5'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#6366f1'; }}
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #08090d 55%, transparent)', zIndex: 40 }}>
+          <div style={{ maxWidth: 640, margin: '0 auto' }}>
+            <button className="jz-fab" onClick={() => setView('checkin')}
+              style={{ width: '100%', padding: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
             >
               <UserPlus size={20} /> Check In a Client
             </button>

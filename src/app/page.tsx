@@ -2193,7 +2193,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
         {[
-          { label: 'Unique Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
+          { label: 'Played Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
           { label: 'Total Revenue', value: fmtKSH(totalRevenue), icon: <TrendingUp size={18} color="#10b981" />, accent: '#10b981' },
           { label: 'Total Sessions', value: String(filtered.length), icon: <Award size={18} color="#3b82f6" />, accent: '#3b82f6' },
           { label: 'Total Playtime', value: `${(filtered.reduce((s, l) => s + l.duration_minutes, 0) / 60).toFixed(1)}h`, icon: <Clock size={18} color="#f59e0b" />, accent: '#f59e0b' },
@@ -3181,6 +3181,7 @@ function LiveTimer({ exitTime, status }: { exitTime: string; status: string }) {
 // ─── Clothing options ───────────────────────────────────────────────────────
 const TOP_WEAR_OPTIONS = [
   { id: 'tshirt', label: 'T-Shirt', icon: '👕' },
+  { id: 'checked_shirt', label: 'Checked Shirt', icon: '🟦' },
   { id: 'polo', label: 'Polo Shirt', icon: '👔' },
   { id: 'jersey', label: 'Jersey', icon: '⚽' },
   { id: 'striped_shirt', label: 'Striped Shirt', icon: '👕' },
@@ -3191,11 +3192,13 @@ const TOP_WEAR_OPTIONS = [
   { id: 'blouse', label: 'Blouse', icon: '👚' },
   { id: 'hijab', label: 'Hijab', icon: '🧕' },
   { id: 'tank_top', label: 'Tank Top', icon: '🩱' },
+  { id: 'Denim_Shirt', label: 'Denim Shirt', icon: '👕' },
 ];
 const BOTTOM_WEAR_OPTIONS = [
   { id: 'shorts', label: 'Shorts', icon: '🩳' },
   { id: 'pocketed_shorts', label: 'Pocketed Shorts', icon: '🩳' },
   { id: 'trousers', label: 'Trousers', icon: '👖' },
+  { id: 'checked_pants', label: 'Checked Pants', icon: '🟦' },
   { id: 'jeans', label: 'Jeans', icon: '👖' },
   { id: 'track_pants', label: 'Track Pants', icon: '🏃' },
   { id: 'leggings', label: 'Leggings', icon: '🧦' },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, memo, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
@@ -20,6 +20,7 @@ import {
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
   PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell, Edit,
   Package, TimerReset, Cake, GraduationCap, Handshake, PlusCircle,
+  Sun, Moon,
 } from 'lucide-react';
 
 
@@ -30,6 +31,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme Context
+// ─────────────────────────────────────────────────────────────────────────────
+const ThemeContext = createContext<{ lightMode: boolean; toggleTheme: () => void }>({
+  lightMode: false,
+  toggleTheme: () => { },
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -1008,6 +1017,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onRefresh, isRefresh
 // Header
 // ─────────────────────────────────────────────────────────────────────────────
 function Header({ now, onMenuToggle, mounted }: { now: Date; onMenuToggle: () => void; mounted: boolean }) {
+  const { lightMode, toggleTheme } = useContext(ThemeContext);
   return (
     <header style={{
       background: 'var(--surface)',
@@ -1030,8 +1040,29 @@ function Header({ now, onMenuToggle, mounted }: { now: Date; onMenuToggle: () =>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>Welcome back,</span>
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>VR XTREME</span>
       </div>
-      <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-        {mounted ? format(now, 'EEE, MMM do · HH:mm:ss') : 'Loading time...'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+          {mounted ? format(now, 'EEE, MMM do · HH:mm:ss') : 'Loading time...'}
+        </div>
+        {/* Light/Dark Mode Toggle */}
+        <button
+          onClick={toggleTheme}
+          title={lightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', borderRadius: 20,
+            border: '1px solid var(--border)',
+            background: 'var(--surface2)',
+            color: 'var(--muted)',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+        >
+          {lightMode ? <Moon size={14} /> : <Sun size={14} />}
+          {lightMode ? 'Dark' : 'Light'}
+        </button>
       </div>
     </header>
   );
@@ -2193,7 +2224,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
         {[
-          { label: 'Played Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
+          { label: 'Unique Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
           { label: 'Total Revenue', value: fmtKSH(totalRevenue), icon: <TrendingUp size={18} color="#10b981" />, accent: '#10b981' },
           { label: 'Total Sessions', value: String(filtered.length), icon: <Award size={18} color="#3b82f6" />, accent: '#3b82f6' },
           { label: 'Total Playtime', value: `${(filtered.reduce((s, l) => s + l.duration_minutes, 0) / 60).toFixed(1)}h`, icon: <Clock size={18} color="#f59e0b" />, accent: '#f59e0b' },
@@ -2993,11 +3024,18 @@ function SettingsView({
 // Landing Screen — choose VR Arcade or Jump Zone
 // ─────────────────────────────────────────────────────────────────────────────
 function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline: () => void }) {
+  const { lightMode, toggleTheme } = useContext(ThemeContext);
+  const lm = lightMode;
   return (
     <>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root { --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1; }
+        :root {
+          ${lm
+          ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
+          : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
+        }
+        }
         body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
         @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(22px,-28px)} }
         @keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-18px,22px)} }
@@ -3006,20 +3044,42 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         .land-card:hover { transform: translateY(-4px); }
         .land-card-vr:hover { box-shadow: 0 16px 48px rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.5) !important; }
         .land-card-tr:hover { box-shadow: 0 16px 48px rgba(16,185,129,0.2); border-color: rgba(16,185,129,0.4) !important; }
+        .theme-toggle-btn { transition: background 0.15s, color 0.15s; }
+        .theme-toggle-btn:hover { opacity: 0.85; }
       `}</style>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
       <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', position: 'relative', overflow: 'hidden' }}>
         {/* Ambient orbs */}
-        <div style={{ position: 'absolute', width: 340, height: 340, borderRadius: '50%', background: 'rgba(99,102,241,0.07)', top: -80, left: -80, animation: 'float1 14s ease-in-out infinite', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', width: 240, height: 240, borderRadius: '50%', background: 'rgba(16,185,129,0.06)', bottom: -60, right: -60, animation: 'float2 18s ease-in-out infinite', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', width: 340, height: 340, borderRadius: '50%', background: lm ? 'rgba(99,102,241,0.06)' : 'rgba(99,102,241,0.07)', top: -80, left: -80, animation: 'float1 14s ease-in-out infinite', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', width: 240, height: 240, borderRadius: '50%', background: lm ? 'rgba(16,185,129,0.05)' : 'rgba(16,185,129,0.06)', bottom: -60, right: -60, animation: 'float2 18s ease-in-out infinite', pointerEvents: 'none' }} />
+
+        {/* Theme toggle — top right */}
+        <button
+          className="theme-toggle-btn"
+          onClick={toggleTheme}
+          title={lm ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          style={{
+            position: 'absolute', top: 20, right: 20, zIndex: 10,
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '8px 14px', borderRadius: 20,
+            border: `1px solid ${lm ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'}`,
+            background: lm ? '#ffffff' : '#1c1f29',
+            color: lm ? '#374151' : '#9ca3af',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+          }}
+        >
+          {lm ? <Moon size={15} /> : <Sun size={15} />}
+          {lm ? 'Dark' : 'Light'}
+        </button>
 
         {/* Logo / Title */}
         <div style={{ textAlign: 'center', marginBottom: 48, position: 'relative', zIndex: 1 }}>
-          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 800, color: '#f0f2f8', marginBottom: 8, letterSpacing: '-0.5px' }}>
+          <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 800, color: 'var(--text)', marginBottom: 8, letterSpacing: '-0.5px' }}>
             Xtreme Zone
           </h1>
-          <p style={{ fontSize: 15, color: '#6b7280' }}>Select your section to continue</p>
+          <p style={{ fontSize: 15, color: 'var(--muted)' }}>Select your section to continue</p>
         </div>
 
         {/* Two cards */}
@@ -3029,17 +3089,16 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
           <div
             className="land-card land-card-vr"
             onClick={onVR}
-            style={{ background: '#151820', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.05s' }}
+            style={{ background: 'var(--surface)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.05s' }}
           >
-            {/* Icon */}
             <div style={{ width: 60, height: 60, borderRadius: 16, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </div>
-            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>VR Xtreme</h2>
-            <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>VR Xtreme</h2>
+            <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 24 }}>
               Supervisor dashboard — track machines, revenue, and game sessions in real time.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3052,16 +3111,15 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
           <div
             className="land-card land-card-tr"
             onClick={onTrampoline}
-            style={{ background: '#151820', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.12s' }}
+            style={{ background: 'var(--surface)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 20, padding: '36px 28px', animationDelay: '0.12s' }}
           >
-            {/* Icon */}
             <div style={{ width: 60, height: 60, borderRadius: 16, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
               </svg>
             </div>
-            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: '#f0f2f8', marginBottom: 8 }}>Jump Zone</h2>
-            <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>Jump Zone</h2>
+            <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 24 }}>
               Trampoline check-in — record kids entering, track jump time, and get exit alerts.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3071,8 +3129,8 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
           </div>
         </div>
 
-        <p style={{ marginTop: 40, fontSize: 12, color: '#374151', position: 'relative', zIndex: 1 }}>
-          Jump Xtreme· Portal
+        <p style={{ marginTop: 40, fontSize: 12, color: lm ? '#9ca3af' : '#374151', position: 'relative', zIndex: 1 }}>
+          Jump Xtreme · Portal
         </p>
       </div>
     </>
@@ -3193,10 +3251,12 @@ const TOP_WEAR_OPTIONS = [
   { id: 'hijab', label: 'Hijab', icon: '🧕' },
   { id: 'tank_top', label: 'Tank Top', icon: '🩱' },
   { id: 'Denim_Shirt', label: 'Denim Shirt', icon: '👕' },
+  { id: 'Long_sleeve_Shirt', label: 'Long Sleeve Shirt', icon: '👕' },
+
 ];
 const BOTTOM_WEAR_OPTIONS = [
   { id: 'shorts', label: 'Shorts', icon: '🩳' },
-  { id: 'pocketed_shorts', label: 'Pocketed Shorts', icon: '🩳' },
+  { id: 'side_pocketed_shorts', label: 'Side Pocketed Shorts', icon: '🩳' },
   { id: 'trousers', label: 'Trousers', icon: '👖' },
   { id: 'checked_pants', label: 'Checked Pants', icon: '🟦' },
   { id: 'jeans', label: 'Jeans', icon: '👖' },
@@ -5415,6 +5475,7 @@ function EditKidModal({ session, onClose, onSaved }: {
 
 // ─── Main Trampoline App ───────────────────────────────────────────────────────
 function TrampolineApp({ onBack }: { onBack: () => void }) {
+  const { lightMode, toggleTheme } = useContext(ThemeContext);
   const [view, setView] = useState<'home' | 'checkin' | 'history'>('home');
   const [sessions, setSessions] = useState<JumperSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -5631,9 +5692,11 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
-          --jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c;
-          --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;
-          --jz-green: #00e676; --jz-amber: #ffb300; --jz-red: #ff4f4f;
+          ${lightMode
+          ? '--jz-bg: #f3f4f8; --jz-surface: #ffffff; --jz-card: #edf0f7; --jz-border: rgba(0,0,0,0.08); --jz-text: #111827; --jz-muted: #6b7280;'
+          : '--jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c; --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;'
+        }
+          --jz-green: #00c853; --jz-amber: #ffb300; --jz-red: #ff4f4f;
           --jz-purple: #7c6fff;
         }
         body { background: var(--jz-bg); color: var(--jz-text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
@@ -5644,10 +5707,10 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         .session-card-wrap { contain: layout style; transform: translateZ(0); -webkit-transform: translateZ(0); }
         @media (max-width: 480px) { * { transition-duration: 0s !important; } }
         textarea { font-family: inherit; }
-        input::placeholder, textarea::placeholder { color: #3a3d4a; }
+        input::placeholder, textarea::placeholder { color: ${lightMode ? '#9ca3af' : '#3a3d4a'}; }
 
         /* ── Header ── */
-        .jz-header { background: rgba(8,9,13,0.96); border-bottom: 1px solid var(--jz-border); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
+        .jz-header { background: ${lightMode ? 'rgba(255,255,255,0.96)' : 'rgba(8,9,13,0.96)'}; border-bottom: 1px solid var(--jz-border); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
 
         /* ── Stat card ── */
         .jz-stat { background: var(--jz-card); border: 1px solid var(--jz-border); border-radius: 16px; padding: 14px 10px; text-align: center; transition: border-color 0.2s; }
@@ -5662,9 +5725,9 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
 
         /* ── Filter toggle ── */
         .jz-filter-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--jz-card); border: 1px solid var(--jz-border); border-radius: 12px; padding: 9px 14px; cursor: pointer; transition: border-color 0.15s; }
-        .jz-filter-toggle:hover { border-color: rgba(255,255,255,0.13); }
+        .jz-filter-toggle:hover { border-color: ${lightMode ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.13)'}; }
         .jz-filter-toggle.active { border-color: rgba(124,111,255,0.4); background: rgba(124,111,255,0.07); }
-        .jz-filter-panel { background: #0c0d13; border: 1px solid var(--jz-border); border-top: none; border-radius: 0 0 12px 12px; padding: 14px; animation: jz-slide-up 0.18s ease both; }
+        .jz-filter-panel { background: ${lightMode ? '#edf0f7' : '#0c0d13'}; border: 1px solid var(--jz-border); border-top: none; border-radius: 0 0 12px 12px; padding: 14px; animation: jz-slide-up 0.18s ease both; }
       `}</style>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
@@ -5674,34 +5737,49 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
           {/* Top row */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, paddingBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--jz-border)', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#eef0f6')}
+              <button onClick={onBack} style={{ background: lightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)', border: '1px solid var(--jz-border)', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}
+                onMouseEnter={e => (e.currentTarget.style.color = lightMode ? '#111827' : '#eef0f6')}
                 onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
               >
                 <ChevronLeft size={15} /> Home
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-
                 <div>
-                  <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 900, color: '#eef0f6', margin: 0, lineHeight: 1 }}>Jump Xtreme</h1>
-                  <p style={{ fontSize: 10, color: '#4b5263', margin: 0, letterSpacing: '0.04em' }}>{new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}</p>
+                  <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 900, color: 'var(--jz-text)', margin: 0, lineHeight: 1 }}>Jump Xtreme</h1>
+                  <p style={{ fontSize: 10, color: 'var(--jz-muted)', margin: 0, letterSpacing: '0.04em' }}>{new Date().toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}</p>
                 </div>
               </div>
             </div>
-            {/* Tab switcher */}
-            <div style={{ display: 'flex', background: '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
-              {(['live', 'records'] as const).map(t => (
-                <button key={t} onClick={() => setMainTab(t)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    fontSize: 13, fontWeight: 600,
-                    background: mainTab === t ? '#6366f1' : 'transparent',
-                    color: mainTab === t ? '#fff' : '#6b7280',
-                    transition: 'all 0.15s', whiteSpace: 'nowrap'
-                  }}>
-                  {t === 'live' ? 'Live' : 'Records'}
-                </button>
-              ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Theme toggle */}
+              <button
+                onClick={toggleTheme}
+                title={lightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '6px 11px', borderRadius: 8, border: '1px solid var(--jz-border)',
+                  background: lightMode ? '#ffffff' : 'rgba(255,255,255,0.06)',
+                  color: lightMode ? '#374151' : '#6b7280',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                }}
+              >
+                {lightMode ? <Moon size={14} /> : <Sun size={14} />}
+              </button>
+              {/* Tab switcher */}
+              <div style={{ display: 'flex', background: lightMode ? '#e8eaf0' : '#1c1f29', borderRadius: 10, padding: 3, gap: 2 }}>
+                {(['live', 'records'] as const).map(t => (
+                  <button key={t} onClick={() => setMainTab(t)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      fontSize: 13, fontWeight: 600,
+                      background: mainTab === t ? '#6366f1' : 'transparent',
+                      color: mainTab === t ? '#fff' : '#6b7280',
+                      transition: 'all 0.15s', whiteSpace: 'nowrap'
+                    }}>
+                    {t === 'live' ? 'Live' : 'Records'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -5709,12 +5787,12 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
           {mainTab === 'live' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, paddingBottom: 12 }}>
               {[
-                { label: 'Groups', value: String(active.length), color: '#00e676', icon: '👥' },
+                { label: 'Groups', value: String(active.length), color: '#00c853', icon: '👥' },
                 { label: 'Jumping', value: String(active.reduce((s, x) => s + x.kid_count, 0)), color: '#7c6fff', icon: '🦘' },
                 { label: 'Today', value: String(todayKids), color: '#ffb300', icon: '📅' },
               ].map(c => (
                 <div key={c.label} className="jz-stat">
-                  <p style={{ fontSize: 9, color: '#4b5263', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 4px', fontWeight: 700 }}>{c.icon} {c.label}</p>
+                  <p style={{ fontSize: 9, color: 'var(--jz-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 4px', fontWeight: 700 }}>{c.icon} {c.label}</p>
                   <p style={{ fontSize: 26, fontWeight: 900, color: c.color, lineHeight: 1, fontFamily: ' sans-serif', margin: 0 }}>{c.value}</p>
                 </div>
               ))}
@@ -5904,7 +5982,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
 
       {/* ── Check-in FAB ──────────────────────────────────────────── */}
       {mainTab === 'live' && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #08090d 55%, transparent)', zIndex: 40 }}>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: `linear-gradient(to top, ${lightMode ? '#f3f4f8' : '#08090d'} 55%, transparent)`, zIndex: 40 }}>
           <div style={{ maxWidth: 640, margin: '0 auto' }}>
             <button className="jz-fab" onClick={() => setView('checkin')}
               style={{ width: '100%', padding: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
@@ -5952,6 +6030,18 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
 export default function Dashboard() {
   // ── APP SECTION — landing choice ──────────────────────────────────────────
   const [appSection, setAppSection] = useState<'landing' | 'vr' | 'trampoline'>('landing');
+
+  // ── THEME ─────────────────────────────────────────────────────────────────
+  const [lightMode, setLightMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('xz_light_mode') === 'true'; } catch { return false; }
+  });
+  const toggleTheme = useCallback(() => {
+    setLightMode(prev => {
+      const next = !prev;
+      try { localStorage.setItem('xz_light_mode', String(next)); } catch { }
+      return next;
+    });
+  }, []);
 
   // ── MULTI-USER AUTH ───────────────────────────────────────────────────────
   const [session, setSession] = useState<ActiveSession | null>(null);
@@ -6172,15 +6262,21 @@ export default function Dashboard() {
   // ── Section routing ──────────────────────────────────────────────────────
   if (appSection === 'landing') {
     return (
-      <LandingScreen
-        onVR={() => setAppSection('vr')}
-        onTrampoline={() => setAppSection('trampoline')}
-      />
+      <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
+        <LandingScreen
+          onVR={() => setAppSection('vr')}
+          onTrampoline={() => setAppSection('trampoline')}
+        />
+      </ThemeContext.Provider>
     );
   }
 
   if (appSection === 'trampoline') {
-    return <TrampolineApp onBack={() => setAppSection('landing')} />;
+    return (
+      <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
+        <TrampolineApp onBack={() => setAppSection('landing')} />
+      </ThemeContext.Provider>
+    );
   }
 
   // ── VR Arcade auth gate ───────────────────────────────────────────────────
@@ -6200,147 +6296,149 @@ export default function Dashboard() {
   }
 
   return (
-    <>
-      <style>{`
+    <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
+      <>
+        <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
-          --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
-          --border: rgba(255,255,255,0.07); --text: #f0f2f8;
-          --muted: #6b7280; --accent: #6366f1;
-          --font-display: 'DM Sans', sans-serif; --font-body: 'DM Sans', sans-serif;
+          ${lightMode
+            ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1; --font-display: \'DM Sans\', sans-serif; --font-body: \'DM Sans\', sans-serif;'
+            : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1; --font-display: \'DM Sans\', sans-serif; --font-body: \'DM Sans\', sans-serif;'
+          }
         }
         body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; }
         @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
         @keyframes glow { 0%,100%{box-shadow:0 0 6px #10b981} 50%{box-shadow:0 0 14px #10b981,0 0 4px #10b981} }
         @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: ${lightMode ? 'none' : 'invert(0.6)'}; cursor: pointer; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         .dark-scrollbar::-webkit-scrollbar {
-        tr:hover td { background: rgba(255,255,255,0.02) !important; }
-        select option { background: #1c1f29; color: #f0f2f8; }
+        tr:hover td { background: ${lightMode ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)'} !important; }
+        select option { background: ${lightMode ? '#e8eaf0' : '#1c1f29'}; color: ${lightMode ? '#111827' : '#f0f2f8'}; }
         @media (max-width: 767px) {
           .mobile-overlay { display: block !important; }
         }
         
       `}</style>
 
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
-        <Sidebar
-          active={activeTab}
-          onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(p => !p)}
-          onRefresh={handleRefresh}
-          isRefreshing={isRefreshing}
-          onFreePlay={() => setShowFreePlayModal(true)}
-          session={session}
-          onLogout={handleLogout}
-          onBackToLanding={() => setAppSection('landing')}
-        />
+        <div style={{ display: 'flex', minHeight: '100vh' }}>
+          <Sidebar
+            active={activeTab}
+            onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(p => !p)}
+            onRefresh={handleRefresh}
+            isRefreshing={isRefreshing}
+            onFreePlay={() => setShowFreePlayModal(true)}
+            session={session}
+            onLogout={handleLogout}
+            onBackToLanding={() => setAppSection('landing')}
+          />
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
-          {freePlaySession && (
-            <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
-          )}
-          <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-            {activeTab === 'dashboard' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
-                <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
-                <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-                  <TodayPieChart logs={logs} />
-                  <TopGames logs={logs} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
+            {freePlaySession && (
+              <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
+            )}
+            <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+              {activeTab === 'dashboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
+                  <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
+                  <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                    <TodayPieChart logs={logs} />
+                    <TopGames logs={logs} />
+                  </div>
+                  <RecentSessionsTable logs={logs} />
                 </div>
-                <RecentSessionsTable logs={logs} />
+              )}
+              {activeTab === 'analytics' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <RevenueChart logs={logs} />
+                  <SessionBreakdownChart logs={logs} />
+                  <DailySummary logs={logs} />
+                </div>
+              )}
+              {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
+              {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
+              {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
+            </main>
+            {/* Footer */}
+            <footer style={{
+              borderTop: '1px solid var(--border)',
+              background: 'var(--surface)',
+              padding: '12px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: 'var(--muted)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>© {new Date().getFullYear()} VR Arcade</span>
+                <span style={{ opacity: 0.5 }}>|</span>
+                <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
               </div>
-            )}
-            {activeTab === 'analytics' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <RevenueChart logs={logs} />
-                <SessionBreakdownChart logs={logs} />
-                <DailySummary logs={logs} />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <a href="mailto:your.email@example.com" style={{
+                  color: 'var(--muted)',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s',
+                }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
+                >
+                  charlesmacharia4564@gmail.com
+                </a>
+                <span style={{ opacity: 0.4 }}>|</span>
+
+                <span > +254 769 640 918</span>
               </div>
-            )}
-            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
-            {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-            {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
-          </main>
-          {/* Footer */}
-          <footer style={{
-            borderTop: '1px solid var(--border)',
-            background: 'var(--surface)',
-            padding: '12px 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '12px',
-            color: 'var(--muted)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>© {new Date().getFullYear()} VR Arcade</span>
-              <span style={{ opacity: 0.5 }}>|</span>
-              <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <a href="mailto:your.email@example.com" style={{
-                color: 'var(--muted)',
-                textDecoration: 'none',
-                transition: 'color 0.15s',
-              }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
-              >
-                charlesmacharia4564@gmail.com
-              </a>
-              <span style={{ opacity: 0.4 }}>|</span>
-
-              <span > +254 769 640 918</span>
-            </div>
-          </footer>
+            </footer>
+          </div>
         </div>
-      </div>
-      {showFreePlayModal && (
-        <FreePlayModal
-          onClose={() => setShowFreePlayModal(false)}
-          onActivate={async (session) => {
-            setFreePlaySession(session);
-            setShowFreePlayModal(false);
+        {showFreePlayModal && (
+          <FreePlayModal
+            onClose={() => setShowFreePlayModal(false)}
+            onActivate={async (session) => {
+              setFreePlaySession(session);
+              setShowFreePlayModal(false);
 
-            // Write a special FULL GAME revenue row to game_logs so the
-            // package price is reflected in the dashboard and persists in the DB.
-            // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
-            if (session.packagePrice > 0) {
-              const now = new Date();
-              const endTime = session.endTime;
-              const { error } = await supabase.from('game_logs').insert({
-                computer_id: 'FREE_PLAY',
-                game_name: session.label,
-                start_time: now.toISOString(),
-                end_time: endTime.toISOString(),
-                duration_minutes: Math.round(session.durationHours * 60),
-                revenue_ksh: session.packagePrice,
-                status: 'FULL GAME',
-                date: format(now, 'yyyy-MM-dd'),
-              });
-              if (error) {
-                console.error('Failed to save free play revenue row:', error);
+              // Write a special FULL GAME revenue row to game_logs so the
+              // package price is reflected in the dashboard and persists in the DB.
+              // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
+              if (session.packagePrice > 0) {
+                const now = new Date();
+                const endTime = session.endTime;
+                const { error } = await supabase.from('game_logs').insert({
+                  computer_id: 'FREE_PLAY',
+                  game_name: session.label,
+                  start_time: now.toISOString(),
+                  end_time: endTime.toISOString(),
+                  duration_minutes: Math.round(session.durationHours * 60),
+                  revenue_ksh: session.packagePrice,
+                  status: 'FULL GAME',
+                  date: format(now, 'yyyy-MM-dd'),
+                });
+                if (error) {
+                  console.error('Failed to save free play revenue row:', error);
+                }
               }
-            }
-          }}
-        />
-      )}
-    </>
+            }}
+          />
+        )}
+      </>
+    </ThemeContext.Provider>
   );
 }

@@ -37,7 +37,7 @@ const supabase = createClient(
 // ─────────────────────────────────────────────────────────────────────────────
 const ThemeContext = createContext<{ lightMode: boolean; toggleTheme: () => void }>({
   lightMode: false,
-  toggleTheme: () => { },
+  toggleTheme: () => {},
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,6 +280,9 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
   onFirstSetup: () => void;
   onBack: () => void;
 }) {
+  const { lightMode, toggleTheme } = useContext(ThemeContext);
+  const lm = lightMode;
+
   const [step, setStep] = useState<'pick' | 'pin' | 'register'>('pick');
   const [selectedUser, setSelectedUser] = useState<ArcadeUser | null>(null);
   const [pinInput, setPinInput] = useState('');
@@ -338,9 +341,10 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
   const sharedStyles = `
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0d0f14; --surface: #151820; --surface2: #1c1f29;
-      --border: rgba(255,255,255,0.07); --text: #f0f2f8;
-      --muted: #6b7280; --accent: #6366f1;
+      ${lm
+        ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
+        : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
+      }
     }
     body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
     @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
@@ -349,11 +353,13 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
     @keyframes float2 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(-40px,30px) scale(1.1)} 66%{transform:translate(25px,-25px) scale(0.92)} }
     @keyframes float3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(20px,35px) scale(1.06)} }
     .auth-card { animation: fadeIn 0.25s ease; }
-    .orb1 { position:absolute; width:280px; height:280px; border-radius:50%; background:rgba(99,102,241,0.12); animation:float1 12s ease-in-out infinite; top:-60px; left:-80px; pointer-events:none; }
-    .orb2 { position:absolute; width:200px; height:200px; border-radius:50%; background:rgba(16,185,129,0.07); animation:float2 16s ease-in-out infinite; bottom:-40px; right:-50px; pointer-events:none; }
-    .orb3 { position:absolute; width:140px; height:140px; border-radius:50%; background:rgba(99,102,241,0.06); animation:float3 10s ease-in-out infinite; top:40%; right:8%; pointer-events:none; }
+    .orb1 { position:absolute; width:280px; height:280px; border-radius:50%; background:${lm ? 'rgba(99,102,241,0.07)' : 'rgba(99,102,241,0.12)'}; animation:float1 12s ease-in-out infinite; top:-60px; left:-80px; pointer-events:none; }
+    .orb2 { position:absolute; width:200px; height:200px; border-radius:50%; background:${lm ? 'rgba(16,185,129,0.05)' : 'rgba(16,185,129,0.07)'}; animation:float2 16s ease-in-out infinite; bottom:-40px; right:-50px; pointer-events:none; }
+    .orb3 { position:absolute; width:140px; height:140px; border-radius:50%; background:${lm ? 'rgba(99,102,241,0.04)' : 'rgba(99,102,241,0.06)'}; animation:float3 10s ease-in-out infinite; top:40%; right:8%; pointer-events:none; }
     .user-btn:hover { background: rgba(99,102,241,0.12) !important; border-color: rgba(99,102,241,0.4) !important; }
     .user-btn:hover .user-btn-name { color: #a5b4fc !important; }
+    .theme-btn-login { transition: all 0.15s; }
+    .theme-btn-login:hover { opacity: 0.8; }
   `;
 
   const wrap = (children: React.ReactNode) => (
@@ -362,10 +368,30 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
         <div className="orb1" /><div className="orb2" /><div className="orb3" />
+        {/* Theme toggle — top right */}
+        <button
+          className="theme-btn-login"
+          onClick={toggleTheme}
+          title={lm ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          style={{
+            position: 'absolute', top: 20, right: 20, zIndex: 10,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 13px', borderRadius: 20,
+            border: `1px solid ${lm ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'}`,
+            background: lm ? '#ffffff' : '#1c1f29',
+            color: lm ? '#374151' : '#9ca3af',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+          }}
+        >
+          {lm ? <Moon size={13} /> : <Sun size={13} />}
+          {lm ? 'Dark' : 'Light'}
+        </button>
         <div className="auth-card" style={{
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 20, padding: 36, width: 380, maxWidth: '92%',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1,
+          boxShadow: lm ? '0 24px 48px rgba(0,0,0,0.1)' : '0 24px 48px rgba(0,0,0,0.5)',
+          position: 'relative', zIndex: 1,
         }}>
           {children}
         </div>
@@ -3032,9 +3058,9 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lm
-          ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
-          : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
-        }
+            ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
+            : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
+          }
         }
         body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
         @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(22px,-28px)} }
@@ -3251,12 +3277,10 @@ const TOP_WEAR_OPTIONS = [
   { id: 'hijab', label: 'Hijab', icon: '🧕' },
   { id: 'tank_top', label: 'Tank Top', icon: '🩱' },
   { id: 'Denim_Shirt', label: 'Denim Shirt', icon: '👕' },
-  { id: 'Long_sleeve_Shirt', label: 'Long Sleeve Shirt', icon: '👕' },
-
 ];
 const BOTTOM_WEAR_OPTIONS = [
   { id: 'shorts', label: 'Shorts', icon: '🩳' },
-  { id: 'side_pocketed_shorts', label: 'Side Pocketed Shorts', icon: '🩳' },
+  { id: 'pocketed_shorts', label: 'Pocketed Shorts', icon: '🩳' },
   { id: 'trousers', label: 'Trousers', icon: '👖' },
   { id: 'checked_pants', label: 'Checked Pants', icon: '🟦' },
   { id: 'jeans', label: 'Jeans', icon: '👖' },
@@ -3853,6 +3877,7 @@ function TimeEditModal({
 function CheckInForm({ onDone, onCancel, activeSessions }: {
   onDone: () => void; onCancel: () => void; activeSessions: JumperSession[];
 }) {
+  const { lightMode: lm } = useContext(ThemeContext);
   // ── Top-level mode ─────────────────────────────────────────────────────
   const [checkInMode, setCheckInMode] = useState<'standard' | 'package'>('standard');
 
@@ -4030,13 +4055,16 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
     textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16,
   };
   const card: React.CSSProperties = {
-    background: '#1d1f28', borderRadius: 24, padding: '22px 20px', marginBottom: 16,
+    background: lm ? '#ffffff' : '#1d1f28',
+    borderRadius: 24, padding: '22px 20px', marginBottom: 16,
+    border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'transparent'}`,
+    boxShadow: lm ? '0 2px 12px rgba(0,0,0,0.06)' : 'none',
   };
   const kidColors = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6',
     '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0c0e16', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: lm ? '#f3f4f8' : '#0c0e16', fontFamily: 'Inter, sans-serif' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
         * { box-sizing: border-box; }
@@ -4051,27 +4079,29 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       {/* Sticky header with mode switcher */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(12,14,22,0.96)', backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: lm ? 'rgba(243,244,248,0.96)' : 'rgba(12,14,22,0.96)',
+        backdropFilter: 'blur(20px)',
+        borderBottom: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`,
         padding: '14px 20px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           {/* Left side: back button + title */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button onClick={onCancel} style={{ background: '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#c9c4d8' }}>
+            <button onClick={onCancel} style={{ background: lm ? 'rgba(0,0,0,0.06)' : '#282a32', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: lm ? '#374151' : '#c9c4d8' }}>
               <ChevronLeft size={22} />
             </button>
             <div>
-              <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: 0 }}>Check‑in</p>
+              <p style={{ fontSize: 18, fontWeight: 800, color: lm ? '#111827' : '#e1e1ed', margin: 0 }}>Check‑in</p>
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Jump Xtreme</p>
             </div>
           </div>
 
           {/* Exit time chip only */}
           <div style={{
-            background: selectedCat ? selectedCat.bg : '#1d1f28',
-            border: `1px solid ${selectedCat ? selectedCat.border : 'transparent'}`,
+            background: selectedCat ? selectedCat.bg : (lm ? '#ffffff' : '#1d1f28'),
+            border: `1px solid ${selectedCat ? selectedCat.border : (lm ? 'rgba(0,0,0,0.08)' : 'transparent')}`,
             borderRadius: 14, padding: '8px 14px', textAlign: 'right', transition: 'all 0.2s',
+            boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
           }}>
             <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
               {selectedCat ? selectedCat.label : 'Expected Exit'}
@@ -4082,9 +4112,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </div>
         </div>
 
-
         {/* Mode switcher tabs */}
-        <div style={{ display: 'flex', background: '#0c0e16', borderRadius: 14, padding: 4, gap: 4 }}>
+        <div style={{ display: 'flex', background: lm ? '#e8eaf0' : '#0c0e16', borderRadius: 14, padding: 4, gap: 4 }}>
           {([
             { id: 'standard', label: 'Standard Check‑in', icon: '👤' },
             { id: 'package', label: 'Group Package', icon: '📦' },
@@ -4113,14 +4142,14 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
         {/* ── SECTION 1: COUNT (both modes) ── */}
         <p style={secLabel}>
           {checkInMode === 'package' ? 'Group Size' : 'Quantity'} ·{' '}
-          <span style={{ color: '#c9c4d8' }}>
+          <span style={{ color: lm ? '#374151' : '#c9c4d8' }}>
             {checkInMode === 'package' ? 'Total clients in package' : 'Clients in Group'}
           </span>
         </p>
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontSize: 22, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>
+              <p style={{ fontSize: 22, fontWeight: 800, color: lm ? '#111827' : '#e1e1ed', margin: '0 0 2px' }}>
                 {checkInMode === 'package' ? 'Group Size' : 'Number of Clients'}
               </p>
               <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
@@ -4136,8 +4165,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   disabled={kidCount <= 1}
                   style={{
                     width: 48, height: 48, borderRadius: 16, border: 'none',
-                    background: kidCount <= 1 ? '#1a1d26' : '#282a32',
-                    color: kidCount <= 1 ? '#3a3d4a' : '#c9c4d8',
+                    background: kidCount <= 1 ? (lm ? '#e8eaf0' : '#1a1d26') : (lm ? '#e8eaf0' : '#282a32'),
+                    color: kidCount <= 1 ? (lm ? '#d1d5db' : '#3a3d4a') : (lm ? '#374151' : '#c9c4d8'),
                     fontSize: 28, fontWeight: 300, cursor: kidCount <= 1 ? 'not-allowed' : 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}
@@ -4153,13 +4182,14 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                     if (isNaN(val)) val = 1;
                     val = Math.min(1000, Math.max(1, val));
                     setKidCount(val);
-                    // Also update kid descriptions if needed
                     handleKidCountChange(val);
                   }}
                   style={{
                     width: 100, padding: '12px 8px', borderRadius: 16,
-                    background: '#0c0e16', border: '1px solid rgba(99,102,241,0.4)',
-                    color: '#e1e1ed', fontSize: 28, fontWeight: 800, textAlign: 'center',
+                    background: lm ? '#f3f4f8' : '#0c0e16',
+                    border: '1px solid rgba(99,102,241,0.4)',
+                    color: lm ? '#111827' : '#e1e1ed',
+                    fontSize: 28, fontWeight: 800, textAlign: 'center',
                     outline: 'none', fontFamily: 'Inter, sans-serif',
                   }}
                 />
@@ -4169,7 +4199,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   disabled={kidCount >= 1000}
                   style={{
                     width: 48, height: 48, borderRadius: 16, border: 'none',
-                    background: kidCount >= 1000 ? '#1a1d26' : 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)',
+                    background: kidCount >= 1000 ? (lm ? '#e8eaf0' : '#1a1d26') : 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)',
                     color: '#fff', fontSize: 28, fontWeight: 300,
                     cursor: kidCount >= 1000 ? 'not-allowed' : 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -4198,15 +4228,16 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 onClick={() => { setShowSpecial(p => !p); if (showSpecial) setSpecialCategory(null); }}
                 style={{
                   width: '100%', padding: '13px 18px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  background: showSpecial ? 'rgba(245,158,11,0.1)' : '#1d1f28',
+                  background: showSpecial ? 'rgba(245,158,11,0.1)' : (lm ? '#ffffff' : '#1d1f28'),
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   transition: 'all 0.18s',
-                  outline: showSpecial ? '1.5px solid rgba(245,158,11,0.4)' : '1.5px solid transparent',
+                  outline: showSpecial ? '1.5px solid rgba(245,158,11,0.4)' : `1.5px solid ${lm ? 'rgba(0,0,0,0.08)' : 'transparent'}`,
+                  boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 20 }}>⭐</span>
                   <div style={{ textAlign: 'left' }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: showSpecial ? '#fbbf24' : '#e1e1ed', margin: 0 }}>Special Categories</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: showSpecial ? '#fbbf24' : (lm ? '#111827' : '#e1e1ed'), margin: 0 }}>Special Categories</p>
                     <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
                       {selectedCat ? `${selectedCat.icon} ${selectedCat.label} selected` : 'Unlimited, Standard & Premium passes'}
                     </p>
@@ -4214,7 +4245,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 </div>
                 <div style={{
                   width: 44, height: 24, borderRadius: 12, position: 'relative', flexShrink: 0,
-                  background: showSpecial ? '#f59e0b' : '#282a32',
+                  background: showSpecial ? '#f59e0b' : (lm ? '#d1d5db' : '#282a32'),
                   transition: 'background 0.2s',
                 }}>
                   <div style={{ position: 'absolute', top: 3, left: showSpecial ? 22 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
@@ -4233,23 +4264,23 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 14,
                           padding: '16px 18px', borderRadius: 18, border: 'none', cursor: 'pointer',
-                          background: isSelected ? cat.bg : '#1a1c25',
-                          outline: isSelected ? `2px solid ${cat.color}` : '2px solid rgba(255,255,255,0.05)',
+                          background: isSelected ? cat.bg : (lm ? '#f3f4f8' : '#1a1c25'),
+                          outline: isSelected ? `2px solid ${cat.color}` : `2px solid ${lm ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)'}`,
                           outlineOffset: 0, textAlign: 'left', width: '100%',
                         }}>
                         <div style={{
                           width: 48, height: 48, borderRadius: 16, flexShrink: 0,
-                          background: isSelected ? cat.gradient : '#282a32',
+                          background: isSelected ? cat.gradient : (lm ? '#e8eaf0' : '#282a32'),
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 24, transition: 'all 0.18s',
                           boxShadow: isSelected ? `0 4px 16px ${cat.color}44` : 'none',
                         }}>{cat.icon}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontSize: 15, fontWeight: 800, color: isSelected ? cat.color : '#e1e1ed', margin: '0 0 3px', transition: 'color 0.15s' }}>{cat.label}</p>
+                          <p style={{ fontSize: 15, fontWeight: 800, color: isSelected ? cat.color : (lm ? '#111827' : '#e1e1ed'), margin: '0 0 3px', transition: 'color 0.15s' }}>{cat.label}</p>
                           <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{cat.tagline}</p>
                         </div>
-                        <div style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 20, background: isSelected ? `${cat.color}22` : '#282a32', border: `1px solid ${isSelected ? cat.border : 'transparent'}`, fontSize: 10, fontWeight: 700, color: isSelected ? cat.color : '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>All Day</div>
-                        <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, border: `2px solid ${isSelected ? cat.color : 'rgba(255,255,255,0.15)'}`, background: isSelected ? cat.color : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
+                        <div style={{ flexShrink: 0, padding: '4px 10px', borderRadius: 20, background: isSelected ? `${cat.color}22` : (lm ? '#e8eaf0' : '#282a32'), border: `1px solid ${isSelected ? cat.border : 'transparent'}`, fontSize: 10, fontWeight: 700, color: isSelected ? cat.color : '#4b5563', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>All Day</div>
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, border: `2px solid ${isSelected ? cat.color : (lm ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)')}`, background: isSelected ? cat.color : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
                           {isSelected && <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }} />}
                         </div>
                       </button>
@@ -4266,17 +4297,17 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 <div style={card}>
 
                   {/* ── Session Times (PIN‑gated via modal) ── */}
-                  <div style={{ marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 16 }}>
+                  <div style={{ marginBottom: 20, borderBottom: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`, paddingBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>⏱️ Session Times</p>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: lm ? '#111827' : '#e1e1ed', margin: '0 0 2px' }}>⏱️ Session Times</p>
                         <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
                           Check‑in: {format(checkInTime, 'HH:mm')} · Exit: {format(exitTime, 'HH:mm')}
                         </p>
                       </div>
                       <button
                         onClick={() => setShowPinModalForTime(true)}
-                        style={{ background: '#282a32', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', color: '#818cf8', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+                        style={{ background: lm ? '#e8eaf0' : '#282a32', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', color: '#818cf8', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
                       >
                         <Edit size={14} /> Edit Times
                       </button>
@@ -4291,7 +4322,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   {/* Standard hours row + custom hours toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
                     <div>
-                      <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
+                      <p style={{ fontSize: 18, fontWeight: 800, color: lm ? '#111827' : '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
                       <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Base playtime</p>
                     </div>
                     {customHourMode ? (
@@ -4304,8 +4335,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                           autoFocus
                           style={{
                             width: 80, padding: '10px 12px', borderRadius: 12,
-                            background: '#0c0e16', border: '1px solid rgba(99,102,241,0.4)',
-                            color: '#e1e1ed', fontSize: 20, fontWeight: 800,
+                            background: lm ? '#f3f4f8' : '#0c0e16',
+                            border: '1px solid rgba(99,102,241,0.4)',
+                            color: lm ? '#111827' : '#e1e1ed',
+                            fontSize: 20, fontWeight: 800,
                             outline: 'none', textAlign: 'center',
                           }}
                         />
@@ -4328,7 +4361,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                     {customHourMode ? '← Use standard stepper' : '✏ Enter custom hours (e.g. 1.5h, 2.5h)'}
                   </button>
 
-                  <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
+                  <div style={{ height: 1, background: lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
 
                   {/* Bonus chips */}
                   <p style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Bonus Time</p>
@@ -4338,8 +4371,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                         style={{
                           padding: '9px 16px', borderRadius: 12, border: 'none', cursor: 'pointer',
                           fontSize: 14, fontWeight: 700,
-                          background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : '#282a32',
-                          color: bonusMins === m ? '#fff' : '#c9c4d8',
+                          background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : (lm ? '#e8eaf0' : '#282a32'),
+                          color: bonusMins === m ? '#fff' : (lm ? '#374151' : '#c9c4d8'),
                           transition: 'all 0.12s',
                           transform: bonusMins === m ? 'scale(1.05)' : 'scale(1)',
                         }}>
@@ -4348,12 +4381,12 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                     ))}
                   </div>
 
-                  <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
+                  <div style={{ height: 1, background: lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)', marginBottom: 16 }} />
 
                   {/* Fine‑tune */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: '#e1e1ed', margin: '0 0 2px' }}>Fine‑tune</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: lm ? '#111827' : '#e1e1ed', margin: '0 0 2px' }}>Fine‑tune</p>
                       <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>Adjust for early arrivals · wristband sync</p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -4362,8 +4395,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                         disabled={fineTune <= -10}
                         style={{
                           width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
-                          background: fineTune <= -10 ? '#1a1c25' : '#282a32',
-                          color: fineTune <= -10 ? '#3a3d4a' : '#ef4444',
+                          background: fineTune <= -10 ? (lm ? '#e8eaf0' : '#1a1c25') : (lm ? '#fee2e2' : '#282a32'),
+                          color: fineTune <= -10 ? (lm ? '#d1d5db' : '#3a3d4a') : '#ef4444',
                           fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
                           transition: 'all 0.1s',
                         }}>−</button>
@@ -4380,8 +4413,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                         disabled={fineTune >= 10}
                         style={{
                           width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
-                          background: fineTune >= 10 ? '#1a1c25' : 'linear-gradient(135deg, #059669, #00C853)',
-                          color: fineTune >= 10 ? '#3a3d4a' : '#fff',
+                          background: fineTune >= 10 ? (lm ? '#e8eaf0' : '#1a1c25') : 'linear-gradient(135deg, #059669, #00C853)',
+                          color: fineTune >= 10 ? (lm ? '#d1d5db' : '#3a3d4a') : '#fff',
                           fontSize: 20, fontWeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
                           transition: 'all 0.1s',
                         }}>+</button>
@@ -4400,7 +4433,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
             <>
               <p style={{ ...secLabel, marginTop: 8 }}>
                 Identification ·{' '}
-                <span style={{ color: '#c9c4d8' }}>
+                <span style={{ color: lm ? '#374151' : '#c9c4d8' }}>
                   {kidCount === 1 ? 'Quick Description' : `Describe Each Client (${kidCount} total)`}
                 </span>
               </p>
@@ -4416,14 +4449,14 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                         style={{
                           flexShrink: 0, padding: '10px 16px', borderRadius: 14, border: 'none',
                           cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                          background: isActive ? '#1d1f28' : '#0c0e16',
-                          outline: isActive ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.06)',
+                          background: isActive ? (lm ? '#ffffff' : '#1d1f28') : (lm ? '#e8eaf0' : '#0c0e16'),
+                          outline: isActive ? `2px solid ${accent}` : `2px solid ${lm ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'}`,
                           outlineOffset: 0, transition: 'all 0.15s',
                         }}>
                         <div style={{ width: 26, height: 26, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{i + 1}</span>
                         </div>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? '#e1e1ed' : '#6b7280' }}>Kid {i + 1}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? (lm ? '#111827' : '#e1e1ed') : '#6b7280' }}>Kid {i + 1}</span>
                         {desc.gender && desc.gender !== 'other' && (
                           <span style={{ fontSize: 12, color: desc.gender === 'male' ? '#60a5fa' : '#f472b6', fontWeight: 700 }}>
                             {desc.gender === 'male' ? '♂' : '♀'}
@@ -4437,7 +4470,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                           <div style={{ display: 'flex', gap: 3 }}>
                             {desc.colors.slice(0, 3).map(cid => {
                               const c = COLOR_OPTIONS.find(x => x.id === cid);
-                              return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: '1px solid rgba(255,255,255,0.15)' }} /> : null;
+                              return c ? <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, outline: `1px solid ${lm ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}` }} /> : null;
                             })}
                           </div>
                         )}
@@ -4447,7 +4480,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 </div>
               )}
 
-              <div style={{ background: '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16 }}>
+              <div style={{ background: lm ? '#ffffff' : '#1d1f28', borderRadius: 24, padding: '4px', marginBottom: 16, border: lm ? '1px solid rgba(0,0,0,0.08)' : 'none', boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none' }}>
                 <KidDescPanel
                   key={activeKid}
                   kidIndex={activeKid}
@@ -4459,7 +4492,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
               {kidCount > 1 && activeKid < kidCount - 1 && (
                 <button onClick={() => setActiveKid(activeKid + 1)}
-                  style={{ width: '100%', padding: '14px', borderRadius: 14, border: 'none', background: '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s' }}>
+                  style={{ width: '100%', padding: '14px', borderRadius: 14,  background: lm ? '#ffffff' : '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s', border: lm ? '1px solid rgba(0,0,0,0.08)' : 'none' } as React.CSSProperties}>
                   Next → Kid {activeKid + 2}
                 </button>
               )}
@@ -4470,7 +4503,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                     const hasDesc = desc.colors.length > 0 || desc.tops.length > 0 || desc.bottoms.length > 0;
                     const accent = kidColors[i % kidColors.length];
                     return (
-                      <div key={i} style={{ width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4, background: hasDesc ? accent : i === activeKid ? '#7B61FF' : '#282a32', transition: 'all 0.2s' }} />
+                      <div key={i} style={{ width: i === activeKid ? 24 : 8, height: 8, borderRadius: 4, background: hasDesc ? accent : i === activeKid ? '#7B61FF' : (lm ? '#d1d5db' : '#282a32'), transition: 'all 0.2s' }} />
                     );
                   })}
                 </div>
@@ -4486,7 +4519,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
             <div style={card}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
                 <div>
-                  <p style={{ fontSize: 18, fontWeight: 800, color: '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
+                  <p style={{ fontSize: 18, fontWeight: 800, color: lm ? '#111827' : '#e1e1ed', margin: '0 0 2px' }}>Standard Hours</p>
                   <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Base playtime</p>
                 </div>
                 <Stepper large value={hours} onDec={() => setHours(v => Math.max(1, v - 1))} onInc={() => setHours(v => Math.min(8, v + 1))} />
@@ -4498,8 +4531,8 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                     style={{
                       padding: '10px 18px', borderRadius: 12, border: 'none', cursor: 'pointer',
                       fontSize: 15, fontWeight: 700,
-                      background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : '#282a32',
-                      color: bonusMins === m ? '#fff' : '#c9c4d8',
+                      background: bonusMins === m ? 'linear-gradient(135deg, #917eff 0%, #7B61FF 100%)' : (lm ? '#e8eaf0' : '#282a32'),
+                      color: bonusMins === m ? '#fff' : (lm ? '#374151' : '#c9c4d8'),
                       transition: 'all 0.12s',
                       transform: bonusMins === m ? 'scale(1.05)' : 'scale(1)',
                     }}>
@@ -4516,16 +4549,17 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   style={{
                     display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
                     borderRadius: 16, border: 'none', cursor: 'pointer', textAlign: 'left',
-                    background: selectedPackage === pkg.id ? `rgba(${pkg.color === '#f472b6' ? '244,114,182' : pkg.color === '#60a5fa' ? '96,165,250' : pkg.color === '#34d399' ? '52,211,153' : '167,139,250'},0.12)` : '#1d1f28',
-                    outline: selectedPackage === pkg.id ? `2px solid ${pkg.color}` : '2px solid transparent',
+                    background: selectedPackage === pkg.id ? `rgba(${pkg.color === '#f472b6' ? '244,114,182' : pkg.color === '#60a5fa' ? '96,165,250' : pkg.color === '#34d399' ? '52,211,153' : '167,139,250'},0.12)` : (lm ? '#ffffff' : '#1d1f28'),
+                    outline: selectedPackage === pkg.id ? `2px solid ${pkg.color}` : `2px solid ${lm ? 'rgba(0,0,0,0.08)' : 'transparent'}`,
                     outlineOffset: 0, transition: 'all 0.15s',
+                    boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
                   }}>
                   <span style={{ fontSize: 28, flexShrink: 0 }}>{pkg.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: selectedPackage === pkg.id ? pkg.color : '#e1e1ed', margin: '0 0 2px' }}>{pkg.label}</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: selectedPackage === pkg.id ? pkg.color : (lm ? '#111827' : '#e1e1ed'), margin: '0 0 2px' }}>{pkg.label}</p>
                     <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{pkg.desc}</p>
                   </div>
-                  <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${selectedPackage === pkg.id ? pkg.color : 'rgba(255,255,255,0.15)'}`, background: selectedPackage === pkg.id ? pkg.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${selectedPackage === pkg.id ? pkg.color : (lm ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)')}`, background: selectedPackage === pkg.id ? pkg.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {selectedPackage === pkg.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
                   </div>
                 </button>
@@ -4540,7 +4574,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                   value={customPackageName}
                   onChange={e => setCustomPackageName(e.target.value)}
                   placeholder="Enter custom package name…"
-                  style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 15, width: '100%', outline: 'none' }}
+                  style={{ background: lm ? '#ffffff' : '#1d1f28', border: `1px solid ${lm ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 14, padding: '14px 16px', color: lm ? '#111827' : '#e1e1ed', fontSize: 15, width: '100%', outline: 'none' }}
                   autoFocus
                 />
               </div>
@@ -4553,7 +4587,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
                 onChange={e => setGroupNote(e.target.value)}
                 placeholder="any relevant group information"
                 rows={3}
-                style={{ background: '#1d1f28', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', color: '#e1e1ed', fontSize: 14, width: '100%', outline: 'none', resize: 'none', lineHeight: 1.6 }}
+                style={{ background: lm ? '#ffffff' : '#1d1f28', border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, padding: '14px 16px', color: lm ? '#111827' : '#e1e1ed', fontSize: 14, width: '100%', outline: 'none', resize: 'none', lineHeight: 1.6 }}
               />
             </div>
           </>
@@ -4562,9 +4596,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
         {/* Summary preview (common for both modes) */}
         <div style={{
           borderRadius: 20, padding: '16px 18px', marginBottom: 16,
-          background: selectedCat ? selectedCat.bg : '#1d1f28',
-          border: `1px solid ${selectedCat ? selectedCat.border : 'transparent'}`,
+          background: selectedCat ? selectedCat.bg : (lm ? '#ffffff' : '#1d1f28'),
+          border: `1px solid ${selectedCat ? selectedCat.border : (lm ? 'rgba(0,0,0,0.08)' : 'transparent')}`,
           display: 'flex', gap: 16, alignItems: 'center', transition: 'all 0.2s',
+          boxShadow: lm ? '0 2px 12px rgba(0,0,0,0.06)' : 'none',
         }}>
           <div style={{ flex: 1 }}>
             <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>
@@ -4603,7 +4638,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
           </div>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Check‑in</p>
-            <p style={{ fontSize: 22, fontWeight: 700, color: checkInTime.getTime() < (Date.now() - 60000) ? '#f59e0b' : '#e1e1ed', margin: 0 }}>
+            <p style={{ fontSize: 22, fontWeight: 700, color: checkInTime.getTime() < (Date.now() - 60000) ? '#f59e0b' : (lm ? '#111827' : '#e1e1ed'), margin: 0 }}>
               {checkInTime.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: true })}
             </p>
             {checkInTime.getTime() < (Date.now() - 60000) && (
@@ -4663,12 +4698,12 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
       )}
 
       {/* Fixed CTA */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: 'linear-gradient(to top, #0c0e16 60%, transparent)', zIndex: 50 }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '16px 16px 24px', background: `linear-gradient(to top, ${lm ? '#f3f4f8' : '#0c0e16'} 60%, transparent)`, zIndex: 50 }}>
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
           <button onClick={handleSubmit} disabled={saving}
             style={{
               width: '100%', padding: '20px', border: 'none', borderRadius: 20, cursor: saving ? 'not-allowed' : 'pointer',
-              background: saving ? '#282a32'
+              background: saving ? (lm ? '#e8eaf0' : '#282a32')
                 : checkInMode === 'package'
                   ? 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)'
                   : (selectedCat ? selectedCat.gradient : 'linear-gradient(135deg, #3ce36a 0%, #00C853 100%)'),
@@ -4702,6 +4737,7 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   onAddTime?: (session: JumperSession) => void;
   onDelete?: (session: JumperSession) => void;
 }) {
+  const { lightMode: lm } = useContext(ThemeContext);
   const [expanded, setExpanded] = useState(false);
   const isActive = session.status === 'active';
   const { urgent, overdue } = isActive ? timeUntilExit(session.exit_time) : { urgent: false, overdue: false };
@@ -4734,18 +4770,21 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   }, [session.package_type]);
 
   const defaultAccentColor = !isActive ? '#6b7280' : overdue ? '#ef4444' : urgent ? '#f59e0b' : '#00C853';
-  const defaultBorderColor = !isActive ? 'rgba(255,255,255,0.05)' : overdue ? 'rgba(239,68,68,0.35)' : urgent ? 'rgba(245,158,11,0.3)' : 'rgba(0,200,83,0.2)';
+  const defaultBorderColor = !isActive
+    ? (lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)')
+    : overdue ? 'rgba(239,68,68,0.35)' : urgent ? 'rgba(245,158,11,0.3)' : 'rgba(0,200,83,0.2)';
 
   const kidAccents = ['#7B61FF', '#00C853', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#06b6d4', '#8b5cf6', '#10b981', '#f97316'];
   const hasAnyDesc = kidDescs.some(d => d.colors.length > 0 || d.tops.length > 0 || d.bottoms.length > 0);
 
   return (
     <div style={{
-      background: packageStyle?.bg || '#1d1f28',
+      background: packageStyle?.bg || (lm ? '#ffffff' : '#1d1f28'),
       borderRadius: 18,
       border: `1px solid ${packageStyle?.border || defaultBorderColor}`,
       overflow: 'hidden', transition: 'border-color 0.3s',
       fontFamily: 'Inter, sans-serif',
+      boxShadow: lm ? '0 2px 12px rgba(0,0,0,0.06)' : 'none',
     }}>
       {/* Package type banner */}
       {packageStyle && (
@@ -4787,7 +4826,7 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
               <span style={{ fontSize: 18, fontWeight: 800, color: '#c9bfff' }}>×{session.kid_count}</span>
             </div>
             <div>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#e1e1ed' }}>{fmtTime(session.check_in_time)}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: lm ? '#111827' : '#e1e1ed' }}>{fmtTime(session.check_in_time)}</span>
               <span style={{ fontSize: 13, color: '#6b7280', margin: '0 6px' }}>→</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: defaultAccentColor }}>{fmtTime(session.exit_time)}</span>
             </div>
@@ -4805,7 +4844,7 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
               </span>
             )}
 
-            {/* Add time button (Active for BOTH Active and Exited) */}
+            {/* Add time button */}
             {onAddTime && (
               <button
                 onClick={() => onAddTime(session)}
@@ -4831,10 +4870,12 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
                 onClick={() => onEdit(session.id)}
                 title="Edit description"
                 style={{
-                  background: '#282a32', border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
-                  color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0,
+                  background: lm ? 'rgba(0,0,0,0.06)' : '#282a32',
+                  border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
+                  color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s', flexShrink: 0,
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e1e1ed'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = lm ? '#111827' : '#e1e1ed'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#6b7280'; }}
               >
                 <Edit size={14} />
@@ -4844,7 +4885,11 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
             {/* Expand toggle when multi-kid */}
             {session.kid_count > 1 && hasAnyDesc && (
               <button onClick={() => setExpanded(p => !p)}
-                style={{ background: '#282a32', border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                style={{
+                  background: lm ? 'rgba(0,0,0,0.06)' : '#282a32',
+                  border: 'none', borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
+                  color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
                 {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
             )}
@@ -4873,7 +4918,7 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
         {isActive && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <LiveTimer exitTime={session.exit_time} status={session.status} />
-            <span style={{ fontSize: 12, color: '#4a4d5e' }}>·</span>
+            <span style={{ fontSize: 12, color: lm ? '#d1d5db' : '#4a4d5e' }}>·</span>
             <span style={{ fontSize: 12, color: '#6b7280' }}>
               {session.duration_hours}h{session.bonus_minutes > 0 ? ` +${session.bonus_minutes}m` : ''}
             </span>
@@ -5062,6 +5107,7 @@ const MemoSessionCard = memo(SessionCard, (prev, next) => {
 // Trampoline Records & Analytics View
 // ─────────────────────────────────────────────────────────────────────────────
 function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
+  const { lightMode: lm } = useContext(ThemeContext);
   const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('today');
   const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [search, setSearch] = useState('');
@@ -5184,9 +5230,11 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
   };
 
   const inpStyle: React.CSSProperties = {
-    background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10, padding: '10px 14px', color: '#f0f2f8', fontSize: 14,
-    outline: 'none', width: '100%',
+    background: lm ? '#e8eaf0' : '#1c1f29',
+    border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+    borderRadius: 10, padding: '10px 14px',
+    color: lm ? '#111827' : '#f0f2f8',
+    fontSize: 14, outline: 'none', width: '100%',
   };
   const getReadableDescription = (session: JumperSession): string => {
     // If we have per‑kid descriptions (JSON)
@@ -5228,10 +5276,10 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Period filter bar */}
-      <div style={{ background: '#151820', borderRadius: 14, padding: '14px 16px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      <div style={{ background: lm ? '#ffffff' : '#151820', borderRadius: 14, padding: '14px 16px', border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         {(['today', 'week', 'month', 'custom'] as const).map(p => (
           <button key={p} onClick={() => setPeriod(p)}
-            style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: period === p ? '#6366f1' : '#1c1f29', color: period === p ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+            style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: period === p ? '#6366f1' : (lm ? '#e8eaf0' : '#1c1f29'), color: period === p ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
             {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Pick Date'}
           </button>
         ))}
@@ -5241,7 +5289,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
             style={{ ...inpStyle, width: 'auto', padding: '7px 12px', fontSize: 13, cursor: 'pointer' }} />
         )}
         <button onClick={exportCSV}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: '#1c1f29', color: '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: `1px solid ${lm ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, background: lm ? '#e8eaf0' : '#1c1f29', color: '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
           <Download size={14} /> Export CSV
         </button>
       </div>
@@ -5253,7 +5301,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
           { label: 'Total Kids', value: String(totalKids), color: '#10b981' },
           { label: 'Avg Group Size', value: avgKids, color: '#f59e0b' },
         ].map(c => (
-          <div key={c.label} style={{ background: '#151820', borderRadius: 12, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+          <div key={c.label} style={{ background: lm ? '#ffffff' : '#151820', borderRadius: 12, padding: '14px 12px', border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, textAlign: 'center', boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none' }}>
             <p style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>{c.label}</p>
             <p style={{ fontSize: 20, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</p>
           </div>
@@ -5262,17 +5310,17 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
 
       {/* Mini bar chart */}
       {chartData.some(d => d.groups > 0) && (
-        <div style={{ background: '#151820', borderRadius: 14, padding: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ background: lm ? '#ffffff' : '#151820', borderRadius: 14, padding: '16px', border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none' }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {period === 'today' || period === 'custom' ? 'Groups by Hour' : 'Groups by Day'}
           </p>
           <div style={{ height: 100 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} barSize={period === 'month' ? 8 : 14}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke={lm ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)'} />
                 <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
-                <Tooltip contentStyle={{ background: '#1c1f29', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#f0f2f8', fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: lm ? '#fff' : '#1c1f29', border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 8, color: lm ? '#111827' : '#f0f2f8', fontSize: 12 }} />
                 <Bar dataKey="groups" fill="#6366f1" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -5298,8 +5346,8 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
           <button key={sf} onClick={() => setStatusFilter(sf)}
             style={{
               padding: '10px 14px', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: statusFilter === sf ? (sf === 'active' ? 'rgba(16,185,129,0.15)' : sf === 'exited' ? 'rgba(107,114,128,0.15)' : '#1c1f29') : '#151820',
-              color: statusFilter === sf ? (sf === 'active' ? '#10b981' : sf === 'exited' ? '#9ca3af' : '#fff') : '#6b7280',
+              background: statusFilter === sf ? (sf === 'active' ? 'rgba(16,185,129,0.15)' : sf === 'exited' ? 'rgba(107,114,128,0.15)' : (lm ? '#e8eaf0' : '#1c1f29')) : (lm ? '#f3f4f8' : '#151820'),
+              color: statusFilter === sf ? (sf === 'active' ? '#10b981' : sf === 'exited' ? '#9ca3af' : (lm ? '#111827' : '#fff')) : '#6b7280',
               border: statusFilter === sf ? `1px solid ${sf === 'active' ? 'rgba(16,185,129,0.3)' : sf === 'exited' ? 'rgba(107,114,128,0.3)' : 'rgba(99,102,241,0.4)'}` : '1px solid transparent',
               transition: 'all 0.15s',
             }}>
@@ -5310,17 +5358,17 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
 
       {/* Records table */}
       {filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#6b7280', background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Users size={36} color="#374151" style={{ margin: '0 auto 12px' }} />
-          <p style={{ fontSize: 15, color: '#4b5563', marginBottom: 6 }}>No records found</p>
+        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#6b7280', background: lm ? '#ffffff' : '#151820', borderRadius: 14, border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}` }}>
+          <Users size={36} color="#9ca3af" style={{ margin: '0 auto 12px' }} />
+          <p style={{ fontSize: 15, color: lm ? '#6b7280' : '#4b5563', marginBottom: 6 }}>No records found</p>
           <p style={{ fontSize: 13 }}>Try adjusting the period or search filter</p>
         </div>
       ) : (
-        <div style={{ background: '#151820', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+        <div style={{ background: lm ? '#ffffff' : '#151820', borderRadius: 14, border: `1px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, overflow: 'hidden', boxShadow: lm ? '0 2px 8px rgba(0,0,0,0.05)' : 'none' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 580 }}>
               <thead>
-                <tr style={{ background: '#1c1f29' }}>
+                <tr style={{ background: lm ? '#f3f4f8' : '#1c1f29' }}>
                   {['Time In', 'Exit By', 'Kids', 'Duration', 'Status', 'Description'].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
@@ -5331,14 +5379,14 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
                   const isActive = s.status === 'active';
                   const descStr = s.kid_descs ? s.kid_descs : `${s.top_wear || ''} ${s.bottom_wear || ''} ${s.colors || ''}`.trim();
                   return (
-                    <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                    <tr key={s.id} style={{ borderTop: `1px solid ${lm ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)'}`, background: i % 2 === 0 ? 'transparent' : (lm ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.01)') }}>
+                      <td style={{ padding: '11px 14px', color: lm ? '#6b7280' : '#9ca3af', whiteSpace: 'nowrap' }}>
                         <div>{fmtTime(s.check_in_time)}</div>
-                        <div style={{ fontSize: 11, color: '#4b5563' }}>{format(parseISO(s.check_in_time), 'MMM d')}</div>
+                        <div style={{ fontSize: 11, color: lm ? '#9ca3af' : '#4b5563' }}>{format(parseISO(s.check_in_time), 'MMM d')}</div>
                       </td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{fmtTime(s.exit_time)}</td>
-                      <td style={{ padding: '11px 14px', fontWeight: 600, color: '#e1e1ed' }}>{s.kid_count}</td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af' }}>{s.duration_hours}h{s.bonus_minutes > 0 ? ` +${s.bonus_minutes}m` : ''}</td>
+                      <td style={{ padding: '11px 14px', color: lm ? '#6b7280' : '#9ca3af', whiteSpace: 'nowrap' }}>{fmtTime(s.exit_time)}</td>
+                      <td style={{ padding: '11px 14px', fontWeight: 600, color: lm ? '#111827' : '#e1e1ed' }}>{s.kid_count}</td>
+                      <td style={{ padding: '11px 14px', color: lm ? '#6b7280' : '#9ca3af' }}>{s.duration_hours}h{s.bonus_minutes > 0 ? ` +${s.bonus_minutes}m` : ''}</td>
                       <td style={{ padding: '11px 14px' }}>
                         <span style={{
                           fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
@@ -5346,7 +5394,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
                           color: !isActive ? '#6b7280' : '#10b981',
                         }}>{isActive ? 'Active' : 'Exited'}</span>
                       </td>
-                      <td style={{ padding: '11px 14px', color: '#9ca3af', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '11px 14px', color: lm ? '#6b7280' : '#9ca3af', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {getReadableDescription(s)}
                       </td>
                     </tr>
@@ -5354,7 +5402,7 @@ function TrampolineRecords({ allSessions }: { allSessions: JumperSession[] }) {
                 })}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#1c1f29', borderTop: '2px solid rgba(255,255,255,0.08)' }}>
+                <tr style={{ background: lm ? '#f3f4f8' : '#1c1f29', borderTop: `2px solid ${lm ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}` }}>
                   <td colSpan={2} style={{ padding: '10px 14px', fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Total · {filtered.length} group{filtered.length !== 1 ? 's' : ''}
                   </td>
@@ -5693,9 +5741,9 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lightMode
-          ? '--jz-bg: #f3f4f8; --jz-surface: #ffffff; --jz-card: #edf0f7; --jz-border: rgba(0,0,0,0.08); --jz-text: #111827; --jz-muted: #6b7280;'
-          : '--jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c; --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;'
-        }
+            ? '--jz-bg: #f3f4f8; --jz-surface: #ffffff; --jz-card: #edf0f7; --jz-border: rgba(0,0,0,0.08); --jz-text: #111827; --jz-muted: #6b7280;'
+            : '--jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c; --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;'
+          }
           --jz-green: #00c853; --jz-amber: #ffb300; --jz-red: #ff4f4f;
           --jz-purple: #7c6fff;
         }
@@ -6038,7 +6086,7 @@ export default function Dashboard() {
   const toggleTheme = useCallback(() => {
     setLightMode(prev => {
       const next = !prev;
-      try { localStorage.setItem('xz_light_mode', String(next)); } catch { }
+      try { localStorage.setItem('xz_light_mode', String(next)); } catch {}
       return next;
     });
   }, []);
@@ -6298,7 +6346,7 @@ export default function Dashboard() {
   return (
     <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
       <>
-        <style>{`
+      <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lightMode
@@ -6324,121 +6372,121 @@ export default function Dashboard() {
         
       `}</style>
 
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
-          <Sidebar
-            active={activeTab}
-            onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed(p => !p)}
-            onRefresh={handleRefresh}
-            isRefreshing={isRefreshing}
-            onFreePlay={() => setShowFreePlayModal(true)}
-            session={session}
-            onLogout={handleLogout}
-            onBackToLanding={() => setAppSection('landing')}
-          />
+      <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <Sidebar
+          active={activeTab}
+          onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(p => !p)}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+          onFreePlay={() => setShowFreePlayModal(true)}
+          session={session}
+          onLogout={handleLogout}
+          onBackToLanding={() => setAppSection('landing')}
+        />
 
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
-            {freePlaySession && (
-              <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
+          {freePlaySession && (
+            <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
+          )}
+          <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+            {activeTab === 'dashboard' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
+                <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
+                <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                  <TodayPieChart logs={logs} />
+                  <TopGames logs={logs} />
+                </div>
+                <RecentSessionsTable logs={logs} />
+              </div>
             )}
-            <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-              {activeTab === 'dashboard' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
-                  <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
-                  <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-                    <TodayPieChart logs={logs} />
-                    <TopGames logs={logs} />
-                  </div>
-                  <RecentSessionsTable logs={logs} />
-                </div>
-              )}
-              {activeTab === 'analytics' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  <RevenueChart logs={logs} />
-                  <SessionBreakdownChart logs={logs} />
-                  <DailySummary logs={logs} />
-                </div>
-              )}
-              {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
-              {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-              {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
-            </main>
-            {/* Footer */}
-            <footer style={{
-              borderTop: '1px solid var(--border)',
-              background: 'var(--surface)',
-              padding: '12px 24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '10px',
-              fontSize: '12px',
-              color: 'var(--muted)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>© {new Date().getFullYear()} VR Arcade</span>
-                <span style={{ opacity: 0.5 }}>|</span>
-                <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
+            {activeTab === 'analytics' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <RevenueChart logs={logs} />
+                <SessionBreakdownChart logs={logs} />
+                <DailySummary logs={logs} />
               </div>
+            )}
+            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
+            {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
+            {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
+          </main>
+          {/* Footer */}
+          <footer style={{
+            borderTop: '1px solid var(--border)',
+            background: 'var(--surface)',
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px',
+            fontSize: '12px',
+            color: 'var(--muted)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>© {new Date().getFullYear()} VR Arcade</span>
+              <span style={{ opacity: 0.5 }}>|</span>
+              <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
+            </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <a href="mailto:your.email@example.com" style={{
-                  color: 'var(--muted)',
-                  textDecoration: 'none',
-                  transition: 'color 0.15s',
-                }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
-                >
-                  charlesmacharia4564@gmail.com
-                </a>
-                <span style={{ opacity: 0.4 }}>|</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <a href="mailto:your.email@example.com" style={{
+                color: 'var(--muted)',
+                textDecoration: 'none',
+                transition: 'color 0.15s',
+              }}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
+              >
+                charlesmacharia4564@gmail.com
+              </a>
+              <span style={{ opacity: 0.4 }}>|</span>
 
-                <span > +254 769 640 918</span>
-              </div>
-            </footer>
-          </div>
+              <span > +254 769 640 918</span>
+            </div>
+          </footer>
         </div>
-        {showFreePlayModal && (
-          <FreePlayModal
-            onClose={() => setShowFreePlayModal(false)}
-            onActivate={async (session) => {
-              setFreePlaySession(session);
-              setShowFreePlayModal(false);
+      </div>
+      {showFreePlayModal && (
+        <FreePlayModal
+          onClose={() => setShowFreePlayModal(false)}
+          onActivate={async (session) => {
+            setFreePlaySession(session);
+            setShowFreePlayModal(false);
 
-              // Write a special FULL GAME revenue row to game_logs so the
-              // package price is reflected in the dashboard and persists in the DB.
-              // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
-              if (session.packagePrice > 0) {
-                const now = new Date();
-                const endTime = session.endTime;
-                const { error } = await supabase.from('game_logs').insert({
-                  computer_id: 'FREE_PLAY',
-                  game_name: session.label,
-                  start_time: now.toISOString(),
-                  end_time: endTime.toISOString(),
-                  duration_minutes: Math.round(session.durationHours * 60),
-                  revenue_ksh: session.packagePrice,
-                  status: 'FULL GAME',
-                  date: format(now, 'yyyy-MM-dd'),
-                });
-                if (error) {
-                  console.error('Failed to save free play revenue row:', error);
-                }
+            // Write a special FULL GAME revenue row to game_logs so the
+            // package price is reflected in the dashboard and persists in the DB.
+            // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
+            if (session.packagePrice > 0) {
+              const now = new Date();
+              const endTime = session.endTime;
+              const { error } = await supabase.from('game_logs').insert({
+                computer_id: 'FREE_PLAY',
+                game_name: session.label,
+                start_time: now.toISOString(),
+                end_time: endTime.toISOString(),
+                duration_minutes: Math.round(session.durationHours * 60),
+                revenue_ksh: session.packagePrice,
+                status: 'FULL GAME',
+                date: format(now, 'yyyy-MM-dd'),
+              });
+              if (error) {
+                console.error('Failed to save free play revenue row:', error);
               }
-            }}
-          />
-        )}
-      </>
+            }
+          }}
+        />
+      )}
+    </>
     </ThemeContext.Provider>
   );
 }

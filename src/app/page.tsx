@@ -20,8 +20,18 @@ import {
   TrendingUp, Clock, Award, Gamepad2, LockKeyhole, RefreshCw,
   PartyPopper, Download, Users, UserPlus, ShieldCheck, Shield, LogOut, ChevronLeft, CheckCircle, Bell, Edit,
   Package, TimerReset, Cake, GraduationCap, Handshake, PlusCircle,
-  Sun, Moon,
+  Sun, Moon, BellOff,
 } from 'lucide-react';
+
+
+import {
+  isPushSupported,
+  getNotificationPermission,
+  registerServiceWorker,
+  subscribeToPush,
+  unsubscribeFromPush,
+  sendPushNotification,
+} from '@/lib/pushNotifications';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +47,7 @@ const supabase = createClient(
 // ─────────────────────────────────────────────────────────────────────────────
 const ThemeContext = createContext<{ lightMode: boolean; toggleTheme: () => void }>({
   lightMode: false,
-  toggleTheme: () => {},
+  toggleTheme: () => { },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -342,9 +352,9 @@ function LoginScreen({ users, onLogin, onFirstSetup, onBack }: {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       ${lm
-        ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
-        : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
-      }
+      ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
+      : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
+    }
     }
     body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
     @keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
@@ -2250,7 +2260,7 @@ function GameIntelligenceView({ logs }: { logs: GameLog[] }) {
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
         {[
-          { label: 'Unique Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
+          { label: 'Played Games', value: String(gameStats.length), icon: <Gamepad2 size={18} color="var(--accent)" />, accent: 'var(--accent)' },
           { label: 'Total Revenue', value: fmtKSH(totalRevenue), icon: <TrendingUp size={18} color="#10b981" />, accent: '#10b981' },
           { label: 'Total Sessions', value: String(filtered.length), icon: <Award size={18} color="#3b82f6" />, accent: '#3b82f6' },
           { label: 'Total Playtime', value: `${(filtered.reduce((s, l) => s + l.duration_minutes, 0) / 60).toFixed(1)}h`, icon: <Clock size={18} color="#f59e0b" />, accent: '#f59e0b' },
@@ -3058,9 +3068,9 @@ function LandingScreen({ onVR, onTrampoline }: { onVR: () => void; onTrampoline:
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lm
-            ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
-            : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
-          }
+          ? '--bg: #f3f4f8; --surface: #ffffff; --surface2: #e8eaf0; --border: rgba(0,0,0,0.08); --text: #111827; --muted: #6b7280; --accent: #6366f1;'
+          : '--bg: #0d0f14; --surface: #151820; --surface2: #1c1f29; --border: rgba(255,255,255,0.07); --text: #f0f2f8; --muted: #6b7280; --accent: #6366f1;'
+        }
         }
         body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
         @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(22px,-28px)} }
@@ -4492,7 +4502,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
               {kidCount > 1 && activeKid < kidCount - 1 && (
                 <button onClick={() => setActiveKid(activeKid + 1)}
-                  style={{ width: '100%', padding: '14px', borderRadius: 14,  background: lm ? '#ffffff' : '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s', border: lm ? '1px solid rgba(0,0,0,0.08)' : 'none' } as React.CSSProperties}>
+                  style={{ width: '100%', padding: '14px', borderRadius: 14, background: lm ? '#ffffff' : '#1d1f28', color: '#7B61FF', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, transition: 'all 0.12s', border: lm ? '1px solid rgba(0,0,0,0.08)' : 'none' } as React.CSSProperties}>
                   Next → Kid {activeKid + 2}
                 </button>
               )}
@@ -5533,6 +5543,9 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
   const [currentTime, setCurrentTime] = useState('');
   const playAlertSound = useRef<((type: 'urgent' | 'overdue') => void) | null>(null);
+  const [pushPermission, setPushPermission] = useState<string>('default');
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
   const [editingSession, setEditingSession] = useState<JumperSession | null>(null);
   const [addTimeSession, setAddTimeSession] = useState<JumperSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<JumperSession | null>(null);
@@ -5543,27 +5556,43 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [ageFilter, setAgeFilter] = useState<string[]>([]);         // 'adult' | 'teen' | 'kid'
   const [filterOpen, setFilterOpen] = useState(false);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-
+  const [tick, setTick] = useState(0);
+  
   useEffect(() => {
-    // Create a simple beep using Web Audio
+    // ── Web Audio beep ────────────────────────────────────────────────────────
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
     const audioCtx = new AudioContextClass();
     playAlertSound.current = (type: 'urgent' | 'overdue') => {
       const freq = type === 'urgent' ? 880 : 440;
-      const duration = 0.3;
-      const oscillator = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      oscillator.connect(gain);
-      gain.connect(audioCtx.destination);
-      oscillator.frequency.value = freq;
-      gain.gain.value = 0.2;
-      oscillator.start();
-      gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-      oscillator.stop(audioCtx.currentTime + duration);
-      // Resume if suspended (browser autoplay policy)
+      const duration = type === 'urgent' ? 0.3 : 0.5;
+      const pulses = type === 'overdue' ? 3 : 1;
+      const playPulse = (startTime: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = type === 'urgent' ? 'sine' : 'triangle';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.3, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.00001, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
       if (audioCtx.state === 'suspended') audioCtx.resume();
+      for (let i = 0; i < pulses; i++) playPulse(audioCtx.currentTime + i * (duration + 0.1));
     };
+
+    // ── Service Worker + Push setup ───────────────────────────────────────────
+    registerServiceWorker().then(() => {
+      const perm = getNotificationPermission();
+      setPushPermission(perm as string);
+      if (perm === 'granted') {
+        navigator.serviceWorker.ready.then(reg =>
+          reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub))
+        );
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -5614,16 +5643,33 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     sessions.forEach(s => {
       if (s.status !== 'active') return;
       const { minutes, overdue } = timeUntilExit(s.exit_time);
-      // Alert at 5 min remaining and when overdue
-      if ((minutes <= 5 && minutes > 0 && !alertShown.has(s.id * 1000 + 5)) ||
-        (overdue && !alertShown.has(s.id * 1000 + 0))) {
-        const key = s.id * 1000 + (overdue ? 0 : 5);
-        setAlertShown(prev => new Set([...prev, key]));
-        if (playAlertSound.current) playAlertSound.current(overdue ? 'overdue' : 'urgent');
-      }
+      const isUrgent = minutes <= 5 && minutes > 0 && !alertShown.has(s.id * 1000 + 5);
+      const isOverdue = overdue && !alertShown.has(s.id * 1000 + 0);
+      if (!isUrgent && !isOverdue) return;
 
+      const type = isOverdue ? 'overdue' : 'urgent';
+      const key = s.id * 1000 + (isOverdue ? 0 : 5);
+      setAlertShown(prev => new Set([...prev, key]));
+
+      // 1. In-tab beep
+      if (playAlertSound.current) playAlertSound.current(type);
+
+      // 2. Push notification (fires even when tab is closed)
+      if (pushEnabled) {
+        const kidLabel = s.kid_count === 1 ? '1 kid' : `${s.kid_count} kids`;
+        sendPushNotification({
+          title: isOverdue ? '⏰ Session Overdue!' : '⚠️ Leaving Soon',
+          body: isOverdue
+            ? `${kidLabel} should have left at ${fmtTime(s.exit_time)} — please check.`
+            : `${kidLabel} have 5 minutes left. Exit by ${fmtTime(s.exit_time)}.`,
+          type,
+          tag: `session-${s.id}-${type}`,
+          sessionId: s.id,
+          url: '/',
+        });
+      }
     });
-  }, [sessions, alertShown]);
+  }, [sessions, alertShown, pushEnabled]);
 
   const handleExit = useCallback(async (id: number) => {
     const session = sessions.find(s => s.id === id);
@@ -5741,9 +5787,9 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lightMode
-            ? '--jz-bg: #f3f4f8; --jz-surface: #ffffff; --jz-card: #edf0f7; --jz-border: rgba(0,0,0,0.08); --jz-text: #111827; --jz-muted: #6b7280;'
-            : '--jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c; --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;'
-          }
+          ? '--jz-bg: #f3f4f8; --jz-surface: #ffffff; --jz-card: #edf0f7; --jz-border: rgba(0,0,0,0.08); --jz-text: #111827; --jz-muted: #6b7280;'
+          : '--jz-bg: #08090d; --jz-surface: #0f1117; --jz-card: #13151c; --jz-border: rgba(255,255,255,0.06); --jz-text: #eef0f6; --jz-muted: #4b5263;'
+        }
           --jz-green: #00c853; --jz-amber: #ffb300; --jz-red: #ff4f4f;
           --jz-purple: #7c6fff;
         }
@@ -5799,6 +5845,68 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+              {isPushSupported() && (
+                <button
+                  onClick={async () => {
+                    if (pushEnabled) {
+                      setPushLoading(true);
+                      await unsubscribeFromPush();
+                      setPushEnabled(false);
+                      setPushPermission(getNotificationPermission() as string);
+                      setPushLoading(false);
+                    } else {
+                      setPushLoading(true);
+                      const sub = await subscribeToPush('Jump Zone');
+                      setPushEnabled(!!sub);
+                      setPushPermission(getNotificationPermission() as string);
+                      setPushLoading(false);
+                    }
+                  }}
+                  title={
+                    pushPermission === 'denied'
+                      ? 'Notifications blocked — allow in browser settings'
+                      : pushEnabled
+                        ? 'Notifications ON — tap to turn off'
+                        : 'Enable push notifications'
+                  }
+                  disabled={pushLoading || pushPermission === 'denied'}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '6px 11px', borderRadius: 8,
+                    border: `1px solid ${pushEnabled ? 'rgba(99,102,241,0.4)' : 'var(--jz-border)'}`,
+                    background: pushEnabled
+                      ? 'rgba(99,102,241,0.15)'
+                      : lightMode ? '#ffffff' : 'rgba(255,255,255,0.06)',
+                    color: pushEnabled ? '#818cf8'
+                      : pushPermission === 'denied' ? '#6b7280'
+                        : lightMode ? '#374151' : '#6b7280',
+                    fontSize: 12, fontWeight: 600,
+                    cursor: pushPermission === 'denied' ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s',
+                    opacity: pushLoading ? 0.6 : 1,
+                    position: 'relative',
+                  }}
+                >
+                  {pushLoading ? (
+                    <span style={{ fontSize: 14 }}>⏳</span>
+                  ) : pushEnabled ? (
+                    <Bell size={14} />
+                  ) : (
+                    <BellOff size={14} />
+                  )}
+                  {pushEnabled && (
+                    <span style={{
+                      position: 'absolute', top: -3, right: -3,
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: '#10b981',
+                      border: `1.5px solid ${lightMode ? '#ffffff' : '#0f1117'}`,
+                    }} />
+                  )}
+                </button>
+              )}
+
+
               {/* Theme toggle */}
               <button
                 onClick={toggleTheme}
@@ -6080,15 +6188,24 @@ export default function Dashboard() {
   const [appSection, setAppSection] = useState<'landing' | 'vr' | 'trampoline'>('landing');
 
   // ── THEME ─────────────────────────────────────────────────────────────────
-  const [lightMode, setLightMode] = useState<boolean>(() => {
-    try { return localStorage.getItem('xz_light_mode') === 'true'; } catch { return false; }
-  });
+  const [lightMode, setLightMode] = useState<boolean>(false);
+  const [themeReady, setThemeReady] = useState(false);
+
   const toggleTheme = useCallback(() => {
     setLightMode(prev => {
       const next = !prev;
-      try { localStorage.setItem('xz_light_mode', String(next)); } catch {}
+      try { localStorage.setItem('xz_light_mode', String(next)); } catch { }
       return next;
     });
+  }, []);
+
+  useEffect(() => {
+    // get the real preference from localStorage (client only)
+    try {
+      const stored = localStorage.getItem('xz_light_mode');
+      if (stored) setLightMode(stored === 'true');
+    } catch { }
+    setThemeReady(true);
   }, []);
 
   // ── MULTI-USER AUTH ───────────────────────────────────────────────────────
@@ -6308,6 +6425,11 @@ export default function Dashboard() {
   }, [logs, getEffectiveRevenue]);
 
   // ── Section routing ──────────────────────────────────────────────────────
+
+  if (!themeReady) {
+    return <LoadingScreen />;
+  }
+
   if (appSection === 'landing') {
     return (
       <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
@@ -6346,7 +6468,7 @@ export default function Dashboard() {
   return (
     <ThemeContext.Provider value={{ lightMode, toggleTheme }}>
       <>
-      <style>{`
+        <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
           ${lightMode
@@ -6372,121 +6494,121 @@ export default function Dashboard() {
         
       `}</style>
 
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
-        <Sidebar
-          active={activeTab}
-          onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(p => !p)}
-          onRefresh={handleRefresh}
-          isRefreshing={isRefreshing}
-          onFreePlay={() => setShowFreePlayModal(true)}
-          session={session}
-          onLogout={handleLogout}
-          onBackToLanding={() => setAppSection('landing')}
-        />
+        <div style={{ display: 'flex', minHeight: '100vh' }}>
+          <Sidebar
+            active={activeTab}
+            onNavigate={(id) => { setActiveTab(id); if (window.innerWidth < 768) setSidebarCollapsed(true); }}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed(p => !p)}
+            onRefresh={handleRefresh}
+            isRefreshing={isRefreshing}
+            onFreePlay={() => setShowFreePlayModal(true)}
+            session={session}
+            onLogout={handleLogout}
+            onBackToLanding={() => setAppSection('landing')}
+          />
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
-          {freePlaySession && (
-            <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
-          )}
-          <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-            {activeTab === 'dashboard' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
-                <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
-                <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-                  <TodayPieChart logs={logs} />
-                  <TopGames logs={logs} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <Header now={now} onMenuToggle={() => setSidebarCollapsed(p => !p)} mounted={mounted} />
+            {freePlaySession && (
+              <FreePlayBanner session={freePlaySession} onEnd={() => setFreePlaySession(null)} />
+            )}
+            <main style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+              {activeTab === 'dashboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <MachineStatusCards machines={machines} onDelete={deleteMachine} onClearAll={clearAllMachines} />
+                  <ProgressCard todayRevenue={todayRevenue} dailyTarget={settings?.daily_target_ksh || 4000} />
+                  <StatsCards logs={logs} effectiveRevenue={getEffectiveRevenue} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                    <TodayPieChart logs={logs} />
+                    <TopGames logs={logs} />
+                  </div>
+                  <RecentSessionsTable logs={logs} />
                 </div>
-                <RecentSessionsTable logs={logs} />
+              )}
+              {activeTab === 'analytics' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <RevenueChart logs={logs} />
+                  <SessionBreakdownChart logs={logs} />
+                  <DailySummary logs={logs} />
+                </div>
+              )}
+              {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
+              {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
+              {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
+            </main>
+            {/* Footer */}
+            <footer style={{
+              borderTop: '1px solid var(--border)',
+              background: 'var(--surface)',
+              padding: '12px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: 'var(--muted)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>© {new Date().getFullYear()} VR Arcade</span>
+                <span style={{ opacity: 0.5 }}>|</span>
+                <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
               </div>
-            )}
-            {activeTab === 'analytics' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <RevenueChart logs={logs} />
-                <SessionBreakdownChart logs={logs} />
-                <DailySummary logs={logs} />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <a href="mailto:your.email@example.com" style={{
+                  color: 'var(--muted)',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s',
+                }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
+                >
+                  charlesmacharia4564@gmail.com
+                </a>
+                <span style={{ opacity: 0.4 }}>|</span>
+
+                <span > +254 769 640 918</span>
               </div>
-            )}
-            {activeTab === 'activity' && <ActivityView logs={logs} freePlaySession={freePlaySession} statusOverrides={statusOverrides} setStatusOverrides={setStatusOverrides} effectiveStatus={getEffectiveStatus} effectiveRevenue={getEffectiveRevenue} session={session} />}
-            {activeTab === 'intelligence' && <GameIntelligenceView logs={logs} />}
-            {activeTab === 'settings' && session?.role === 'owner' && (<SettingsView settings={settings} updateSettings={updateSettings} onClearAllMachines={clearAllMachines} session={session} refreshUsers={refreshUsers} />)}
-          </main>
-          {/* Footer */}
-          <footer style={{
-            borderTop: '1px solid var(--border)',
-            background: 'var(--surface)',
-            padding: '12px 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '12px',
-            color: 'var(--muted)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>© {new Date().getFullYear()} VR Arcade</span>
-              <span style={{ opacity: 0.5 }}>|</span>
-              <span>For Help Contact  <span style={{ color: 'var(--accent)', fontWeight: 500 }}></span></span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <a href="mailto:your.email@example.com" style={{
-                color: 'var(--muted)',
-                textDecoration: 'none',
-                transition: 'color 0.15s',
-              }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--muted)'}
-              >
-                charlesmacharia4564@gmail.com
-              </a>
-              <span style={{ opacity: 0.4 }}>|</span>
-
-              <span > +254 769 640 918</span>
-            </div>
-          </footer>
+            </footer>
+          </div>
         </div>
-      </div>
-      {showFreePlayModal && (
-        <FreePlayModal
-          onClose={() => setShowFreePlayModal(false)}
-          onActivate={async (session) => {
-            setFreePlaySession(session);
-            setShowFreePlayModal(false);
+        {showFreePlayModal && (
+          <FreePlayModal
+            onClose={() => setShowFreePlayModal(false)}
+            onActivate={async (session) => {
+              setFreePlaySession(session);
+              setShowFreePlayModal(false);
 
-            // Write a special FULL GAME revenue row to game_logs so the
-            // package price is reflected in the dashboard and persists in the DB.
-            // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
-            if (session.packagePrice > 0) {
-              const now = new Date();
-              const endTime = session.endTime;
-              const { error } = await supabase.from('game_logs').insert({
-                computer_id: 'FREE_PLAY',
-                game_name: session.label,
-                start_time: now.toISOString(),
-                end_time: endTime.toISOString(),
-                duration_minutes: Math.round(session.durationHours * 60),
-                revenue_ksh: session.packagePrice,
-                status: 'FULL GAME',
-                date: format(now, 'yyyy-MM-dd'),
-              });
-              if (error) {
-                console.error('Failed to save free play revenue row:', error);
+              // Write a special FULL GAME revenue row to game_logs so the
+              // package price is reflected in the dashboard and persists in the DB.
+              // computer_id = 'FREE_PLAY' makes it easy to identify/filter later.
+              if (session.packagePrice > 0) {
+                const now = new Date();
+                const endTime = session.endTime;
+                const { error } = await supabase.from('game_logs').insert({
+                  computer_id: 'FREE_PLAY',
+                  game_name: session.label,
+                  start_time: now.toISOString(),
+                  end_time: endTime.toISOString(),
+                  duration_minutes: Math.round(session.durationHours * 60),
+                  revenue_ksh: session.packagePrice,
+                  status: 'FULL GAME',
+                  date: format(now, 'yyyy-MM-dd'),
+                });
+                if (error) {
+                  console.error('Failed to save free play revenue row:', error);
+                }
               }
-            }
-          }}
-        />
-      )}
-    </>
+            }}
+          />
+        )}
+      </>
     </ThemeContext.Provider>
   );
 }

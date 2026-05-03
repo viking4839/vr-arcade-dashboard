@@ -4740,9 +4740,10 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
   );
 }
 // ─── Session card ─────────────────────────────────────────────────────────────
-function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
+function SessionCard({ session, onExit, onEarlyExit, onEdit, onAddTime, onDelete }: {
   session: JumperSession;
   onExit: (id: number) => void;
+  onEarlyExit?: (session: JumperSession) => void;
   onEdit?: (id: number) => void;
   onAddTime?: (session: JumperSession) => void;
   onDelete?: (session: JumperSession) => void;
@@ -4751,6 +4752,8 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
   const [expanded, setExpanded] = useState(false);
   const isActive = session.status === 'active';
   const { urgent, overdue } = isActive ? timeUntilExit(session.exit_time) : { urgent: false, overdue: false };
+  const { minutes: minsLeft } = isActive ? timeUntilExit(session.exit_time) : { minutes: 0 };
+  const timeStillRemaining = isActive && minsLeft > 0 && !overdue;
 
   // Parse per-kid descriptions if available
   const kidDescs: KidDesc[] = useMemo(() => {
@@ -5077,21 +5080,42 @@ function SessionCard({ session, onExit, onEdit, onAddTime, onDelete }: {
       {/* Exit button */}
       {isActive && (
         <div style={{ padding: '0 16px 14px' }}>
-          <button onClick={() => onExit(session.id)}
-            style={{
-              width: '100%', padding: '11px', background: 'transparent',
-              border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12,
-              color: '#ef4444', fontSize: 14, fontWeight: 700,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all 0.12s',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-            onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
-            onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
-          >
-            <LogOut size={15} /> Mark as Exited
-          </button>
+          {timeStillRemaining ? (
+            // Time still remaining — PIN required to exit early
+            <button onClick={() => onEarlyExit?.(session)}
+              style={{
+                width: '100%', padding: '11px', background: 'transparent',
+                border: '1px solid rgba(245,158,11,0.35)', borderRadius: 12,
+                color: '#f59e0b', fontSize: 14, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all 0.12s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(245,158,11,0.08)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
+              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+            >
+              <LockKeyhole size={14} />
+              Early Exit · PIN Required ({minsLeft}m remaining)
+            </button>
+          ) : (
+            // Time is up — free to exit, no PIN needed
+            <button onClick={() => onExit(session.id)}
+              style={{
+                width: '100%', padding: '11px', background: 'transparent',
+                border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12,
+                color: '#ef4444', fontSize: 14, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all 0.12s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.98)'; }}
+              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+            >
+              <LogOut size={15} /> Mark as Exited
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -5108,6 +5132,7 @@ const MemoSessionCard = memo(SessionCard, (prev, next) => {
     prev.session.kid_count === next.session.kid_count &&
     prev.session.kid_descs === next.session.kid_descs &&
     prev.session.top_wear === next.session.top_wear &&
+    prev.onEarlyExit === next.onEarlyExit &&
     prev.session.bottom_wear === next.session.bottom_wear &&
     prev.session.colors === next.session.colors
   );
@@ -5538,7 +5563,8 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [sessions, setSessions] = useState<JumperSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'active' | 'all'>('active');
-  const [alertShown, setAlertShown] = useState<Set<number>>(new Set());
+  const alertShownRef = useRef<Set<number>>(new Set());
+  const autoExitedRef = useRef<Set<number>>(new Set());
   const tickRef = useRef(0);
   const [mainTab, setMainTab] = useState<'live' | 'records'>('live');
   const [currentTime, setCurrentTime] = useState('');
@@ -5549,6 +5575,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [editingSession, setEditingSession] = useState<JumperSession | null>(null);
   const [addTimeSession, setAddTimeSession] = useState<JumperSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<JumperSession | null>(null);
+  const [earlyExitSession, setEarlyExitSession] = useState<JumperSession | null>(null);
   const [liveSearch, setLiveSearch] = useState('');
   const [colorFilter, setColorFilter] = useState<string[]>([]);
   const [clothingFilter, setClothingFilter] = useState<string[]>([]);
@@ -5557,7 +5584,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [tick, setTick] = useState(0);
-  
+
   useEffect(() => {
     // ── Web Audio beep ────────────────────────────────────────────────────────
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -5638,55 +5665,93 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
 
   // Each LiveTimer component owns its own 1s interval — no global tick needed
 
-  // In-app alert for sessions about to exit (no package needed)
+  // In-app alert + push + AUTO-EXIT — runs on its own 30s clock
   useEffect(() => {
-    sessions.forEach(s => {
-      if (s.status !== 'active') return;
-      const { minutes, overdue } = timeUntilExit(s.exit_time);
-      const isUrgent = minutes <= 5 && minutes > 0 && !alertShown.has(s.id * 1000 + 5);
-      const isOverdue = overdue && !alertShown.has(s.id * 1000 + 0);
-      if (!isUrgent && !isOverdue) return;
+    const checkAlerts = () => {
+      sessions.forEach(s => {
+        if (s.status !== 'active') return;
+        const { minutes, overdue } = timeUntilExit(s.exit_time);
 
-      const type = isOverdue ? 'overdue' : 'urgent';
-      const key = s.id * 1000 + (isOverdue ? 0 : 5);
-      setAlertShown(prev => new Set([...prev, key]));
+        // ── AUTO-EXIT: exit the session the moment time is up ─────────────
+        if (overdue && !autoExitedRef.current.has(s.id)) {
+          handleAutoExit(s.id);
+        }
 
-      // 1. In-tab beep
-      if (playAlertSound.current) playAlertSound.current(type);
+        // ── ALERTS ────────────────────────────────────────────────────────
+        const urgentKey = s.id * 1000 + 5;
+        const overdueKey = s.id * 1000 + 0;
+        const shouldUrgent = minutes <= 5 && minutes > 0 && !alertShownRef.current.has(urgentKey);
+        const shouldOverdue = overdue && !alertShownRef.current.has(overdueKey);
+        if (!shouldUrgent && !shouldOverdue) return;
 
-      // 2. Push notification (fires even when tab is closed)
-      if (pushEnabled) {
-        const kidLabel = s.kid_count === 1 ? '1 kid' : `${s.kid_count} kids`;
-        sendPushNotification({
-          title: isOverdue ? '⏰ Session Overdue!' : '⚠️ Leaving Soon',
-          body: isOverdue
-            ? `${kidLabel} should have left at ${fmtTime(s.exit_time)} — please check.`
-            : `${kidLabel} have 5 minutes left. Exit by ${fmtTime(s.exit_time)}.`,
-          type,
-          tag: `session-${s.id}-${type}`,
-          sessionId: s.id,
-          url: '/',
-        });
-      }
-    });
-  }, [sessions, alertShown, pushEnabled]);
+        const isOverdue = shouldOverdue;
+        const key = isOverdue ? overdueKey : urgentKey;
+        alertShownRef.current.add(key);
 
-  const handleExit = useCallback(async (id: number) => {
-    const session = sessions.find(s => s.id === id);
-    if (session) {
-      const exitTime = new Date(session.exit_time);
-      const now = new Date();
-      const minutesEarly = Math.floor((exitTime.getTime() - now.getTime()) / 60000);
-      if (minutesEarly > 30) {
-        const confirmEarly = window.confirm(`This group still has ${minutesEarly} minutes left. Are you sure you want to exit them early?`);
-        if (!confirmEarly) return;
-      }
-    }
+        // 1. In-tab beep
+        if (playAlertSound.current) playAlertSound.current(isOverdue ? 'overdue' : 'urgent');
+
+        // 2. Push notification
+        if (pushEnabled) {
+          const kidLabel = s.kid_count === 1 ? '1 kid' : `${s.kid_count} kids`;
+          sendPushNotification({
+            title: isOverdue ? '⏰ Time Up — Auto-exiting' : '⚠️ Leaving Soon',
+            body: isOverdue
+              ? `${kidLabel} time is up (${fmtTime(s.exit_time)}) — session auto-exited.`
+              : `${kidLabel} have 5 minutes left. Exit by ${fmtTime(s.exit_time)}.`,
+            type: isOverdue ? 'overdue' : 'urgent',
+            tag: `session-${s.id}-${isOverdue ? 'overdue' : 'urgent'}`,
+            sessionId: s.id,
+            url: '/',
+          });
+        }
+      });
+    };
+
+    checkAlerts();
+    const interval = setInterval(checkAlerts, 30_000);
+    return () => clearInterval(interval);
+  }, [sessions, pushEnabled, handleAutoExit]);
+  // Auto-exit — called internally when exit_time is reached
+  const handleAutoExit = useCallback(async (id: number) => {
+    if (autoExitedRef.current.has(id)) return;
+    autoExitedRef.current.add(id);
     await supabase.from('jumper_sessions').update({
       status: 'exited',
       actual_exit_time: new Date().toISOString(),
     }).eq('id', id);
     fetchSessions();
+  }, [fetchSessions]);
+
+  // Early exit — only triggered by PIN-authenticated staff
+  const handleEarlyExitConfirmed = useCallback(async (id: number) => {
+    await supabase.from('jumper_sessions').update({
+      status: 'exited',
+      actual_exit_time: new Date().toISOString(),
+    }).eq('id', id);
+    setEarlyExitSession(null);
+    fetchSessions();
+  }, [fetchSessions]);
+
+  // Called when Exit button is pressed on a card
+  const handleExit = useCallback(async (id: number) => {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return;
+    const exitTime = new Date(session.exit_time);
+    const now = new Date();
+    const minutesEarly = Math.floor((exitTime.getTime() - now.getTime()) / 60000);
+
+    if (minutesEarly > 0) {
+      // Still has time remaining — require PIN
+      setEarlyExitSession(session);
+    } else {
+      // Time already up — direct exit, no PIN needed
+      await supabase.from('jumper_sessions').update({
+        status: 'exited',
+        actual_exit_time: new Date().toISOString(),
+      }).eq('id', id);
+      fetchSessions();
+    }
   }, [sessions, fetchSessions]);
 
   const handleDeleteSession = useCallback(async (id: number) => {
@@ -6125,6 +6190,7 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
                   <MemoSessionCard
                     session={s}
                     onExit={handleExit}
+                    onEarlyExit={(s) => setEarlyExitSession(s)}
                     onEdit={(id) => setEditingSession(sessions.find(x => x.id === id) || null)}
                     onAddTime={(s) => setAddTimeSession(s)}
                     onDelete={(s) => setDeletingSession(s)}
@@ -6175,6 +6241,21 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
           onCancel={() => setDeletingSession(null)}
         />
       )}
+
+      {/* ── Early Exit PIN Modal ─────────────────────────────────────────── */}
+      {earlyExitSession && (() => {
+        const { minutes } = timeUntilExit(earlyExitSession.exit_time);
+        const kidLabel = earlyExitSession.kid_count === 1 ? '1 client' : `${earlyExitSession.kid_count} clients`;
+        return (
+          <PinAuthModal
+            title="Early Exit — PIN Required"
+            subtitle={`${kidLabel} still have ${minutes} minute${minutes !== 1 ? 's' : ''} remaining. Enter your PIN to authorise exiting them early.`}
+            actionLabel="Exit Early"
+            onSuccess={() => handleEarlyExitConfirmed(earlyExitSession.id)}
+            onCancel={() => setEarlyExitSession(null)}
+          />
+        );
+      })()}
     </>
   );
 }

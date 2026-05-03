@@ -3964,7 +3964,7 @@ function CheckInForm({ onDone, onCancel, activeSessions }: {
 
   const endOfDay = () => {
     const d = new Date();
-    d.setHours(22, 0, 0, 0); // 10 PM closing time – adjust as needed
+    d.setHours(21, 0, 0, 0); // 10 PM closing time – adjust as needed
     if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
     return d;
   };
@@ -5665,6 +5665,17 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
 
   // Each LiveTimer component owns its own 1s interval — no global tick needed
 
+  // Auto-exit — called internally when exit_time is reached
+  const handleAutoExit = useCallback(async (id: number) => {
+    if (autoExitedRef.current.has(id)) return;
+    autoExitedRef.current.add(id);
+    await supabase.from('jumper_sessions').update({
+      status: 'exited',
+      actual_exit_time: new Date().toISOString(),
+    }).eq('id', id);
+    fetchSessions();
+  }, [fetchSessions]);
+
   // In-app alert + push + AUTO-EXIT — runs on its own 30s clock
   useEffect(() => {
     const checkAlerts = () => {
@@ -5712,16 +5723,6 @@ function TrampolineApp({ onBack }: { onBack: () => void }) {
     const interval = setInterval(checkAlerts, 30_000);
     return () => clearInterval(interval);
   }, [sessions, pushEnabled, handleAutoExit]);
-  // Auto-exit — called internally when exit_time is reached
-  const handleAutoExit = useCallback(async (id: number) => {
-    if (autoExitedRef.current.has(id)) return;
-    autoExitedRef.current.add(id);
-    await supabase.from('jumper_sessions').update({
-      status: 'exited',
-      actual_exit_time: new Date().toISOString(),
-    }).eq('id', id);
-    fetchSessions();
-  }, [fetchSessions]);
 
   // Early exit — only triggered by PIN-authenticated staff
   const handleEarlyExitConfirmed = useCallback(async (id: number) => {
